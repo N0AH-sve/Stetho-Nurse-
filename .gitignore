@@ -1,0 +1,36 @@
+# Specification: kept locally, never committed
+docs/cahier-des-charges.md
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Hermes data: never commit real data
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Tools and editors (personal settings; .claude/settings.json is shared)
+.claude/settings.local.json
+CLAUDE.local.md
+CLAUDE.md
+.idea/
+.vscode/
+*.swp
+.DS_Store
