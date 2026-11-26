@@ -15,4 +15,4 @@ make check   # lint, type check, tests
 make help    # all commands
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See the [documentation](docs/README.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
