@@ -1,0 +1,13 @@
+{
+  "argv": [
+    "hermes",
+    "cron",
+    "run",
+    "ffffffffffff"
+  ],
+  "exit_code": 1,
+  "stdout": [
+    "Failed to run job: Job with ID or name 'ffffffffffff' not found. Use cronjob(action='list') to inspect jobs."
+  ],
+  "stderr": []
+}

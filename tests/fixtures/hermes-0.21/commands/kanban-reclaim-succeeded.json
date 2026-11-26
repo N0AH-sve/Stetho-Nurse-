@@ -1,0 +1,15 @@
+{
+  "argv": [
+    "hermes",
+    "kanban",
+    "reclaim",
+    "t_00000002",
+    "--reason",
+    "NURSE: no heartbeat"
+  ],
+  "exit_code": 0,
+  "stdout": [
+    "Reclaimed t_00000002"
+  ],
+  "stderr": []
+}

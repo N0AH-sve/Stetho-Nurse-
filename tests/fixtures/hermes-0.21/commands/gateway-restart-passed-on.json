@@ -1,0 +1,10 @@
+{
+  "argv": [
+    "hermes",
+    "gateway",
+    "restart"
+  ],
+  "exit_code": 0,
+  "stdout": [],
+  "stderr": []
+}
