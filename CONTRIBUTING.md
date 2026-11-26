@@ -18,6 +18,10 @@ the page and the alerts are available in French, English and Spanish.
 - Error cases are tested as thoroughly as the happy path.
 - No real Hermes data in the repository (identities, messages, secrets).
 
+## Documentation
+
+Update the matching page in `docs/features/` in the same change as the code.
+
 ## Dependencies
 
 - Add with `uv add` (`uv add --dev` for a tool) and commit `uv.lock`.
