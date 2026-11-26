@@ -1,18 +1,68 @@
 # STETHO & NURSE
 
-Monitoring for Hermes Agent. The specification (`docs/cahier-des-charges.md`, in French) is kept
-locally and is not versioned.
+Monitoring for [Hermes Agent](https://github.com/NousResearch/hermes-agent): see at a glance
+whether it works, get an alert when it breaks, and repair it with predefined actions. Hermes
+itself is neither modified nor upgraded, and no LLM is involved.
 
-For now the repository only contains the development environment, with no code.
+> **Status: design stage.** The repository contains the development environment and the
+> documentation. No application code has been written yet.
+
+## How it works
+
+| Service | Role | Rights |
+| --- | --- | --- |
+| **STETHO** | Reads Hermes data, diagnoses, displays a status page and sends alerts | Reads data only; requests actions from NURSE |
+| **NURSE** | Checks each request again, then runs actions from its catalogue | Not exposed; reaches Docker through a filtering proxy |
+
+See the [architecture](docs/architecture.md) for the data flows and trust boundaries, and
+[security](docs/features/security.md) for the limits of this model.
+
+## Planned features
+
+- Status page in French, English or Spanish (English by default).
+- One module per monitored domain: gateway, platforms, scheduler, cron jobs, Kanban, sessions
+  and known weaknesses.
+- Alerts on Discord first; Telegram can be added later.
+- Corrective actions, run with a button or, for the safest ones, automatically.
+
+## Documentation
+
+| Document | Content |
+| --- | --- |
+| [Documentation index](docs/README.md) | Where to start |
+| [Architecture](docs/architecture.md) | Components and data flows |
+| [Technology choices](docs/tech-stack.md) | What we use and why |
+| [Features](docs/features/README.md) | One page per functional area, with decisions and open points |
 
 ## Getting started
 
-Requirements: [uv](https://docs.astral.sh/uv/) and `make`.
+Requirements: Git, [uv](https://docs.astral.sh/uv/) and `make`.
 
 ```bash
+git clone git@github.com:N0AH-sve/Stetho-Nurse-.git
+cd Stetho-Nurse-
 make setup   # Python environment and Git hooks
 make check   # lint, type check, tests
-make help    # all commands
 ```
 
-See the [documentation](docs/README.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+| Command | Effect |
+| --- | --- |
+| `make help` | List commands |
+| `make setup` | Install the environment and Git hooks |
+| `make fmt` | Format and fix the code |
+| `make check` | Run `lint`, `typecheck` and `test` |
+| `make hooks` | Run the pre-commit hooks on all files |
+| `make audit` | Look for known vulnerabilities in dependencies |
+
+## Repository layout
+
+```
+.claude/      shared Claude Code settings
+docs/         documentation
+Makefile      development commands
+pyproject.toml, uv.lock   Python tools and locked versions
+```
+
+## Contributing
+
+Read [How to contribute](CONTRIBUTING.md).
