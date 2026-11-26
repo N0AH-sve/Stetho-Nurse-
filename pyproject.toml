@@ -1,0 +1,51 @@
+[project]
+name = "stetho-nurse"
+version = "0.0.0"
+description = "Monitoring for Hermes: STETHO and NURSE."
+requires-python = ">=3.12,<3.13"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.1",
+    "pip-audit>=2.10.1",
+    "pre-commit>=4.7.0",
+    "pytest>=9.2.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.4",
+]
+
+[tool.uv]
+package = false
+# Safety delay: ignore releases published after this date (at least 2 weeks old).
+exclude-newer = "2026-11-12T00:00:00Z"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "N", "UP", "B", "S", "A", "C4", "DTZ", "T20",
+    "PT", "SIM", "PTH", "RET", "ARG", "TRY", "BLE", "ASYNC", "PL", "RUF",
+]
+ignore = ["TRY003"]
+
+[tool.ruff.lint.per-file-ignores]
+"{**/tests/**,tests/**}" = ["S101", "PLR2004"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+files = ["."]
+
+[tool.pytest.ini_options]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+filterwarnings = ["error"]
+xfail_strict = true
+
+[tool.coverage.run]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
