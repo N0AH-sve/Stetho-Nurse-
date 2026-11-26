@@ -1,0 +1,2 @@
+{"ts": "2026-01-15T08:00:00+00:00", "tag": "gateway.start", "pid": 101, "replace": false}
+{"ts": "2026-01-15T11:00:00+00:00", "tag": "gateway.exit_clean", "pid": 101}

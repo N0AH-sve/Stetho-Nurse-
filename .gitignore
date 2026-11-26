@@ -15,6 +15,7 @@ config/actions.toml
 *.db-wal
 *.db-shm
 *.log
+!tests/fixtures/**/*.log
 
 # Python
 .venv/
