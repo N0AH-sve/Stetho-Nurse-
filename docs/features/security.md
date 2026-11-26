@@ -29,8 +29,9 @@ Describes the rights of each component, secrets handling and the remaining risks
 - **Shared proxy account.** Users share one account on the reverse proxy. The requester recorded
   for an action is that account: the log cannot tell people apart. Identifying them through
   Discord is considered too complicated.
-
-## Open points
-
-- Make sure STETHO can only be reached through the reverse proxy, or requires its own password.
-  Otherwise someone reaching it directly could bypass the shared account.
+- **Access to STETHO.** It goes through the reverse proxy, with the port bound to `127.0.0.1`
+  only. If other users or programs on the server are not trusted, a STETHO password is also set
+  (`auth.password`).
+- **Secrets in configuration.** Secrets live in the local configuration files. These are never
+  committed, are mounted read-only and are readable only by the administrator and the service
+  that needs them. Each service gets only its own file.

@@ -1,10 +1,14 @@
 # Specification: kept locally, never committed
 docs/cahier-des-charges.md
 
+# Local configuration: holds secrets and installation values
+config/stetho.yaml
+config/nurse.toml
+config/actions.toml
+
 # Secrets
 .env
 .env.*
-!.env.example
 
 # Hermes data: never commit real data
 *.db

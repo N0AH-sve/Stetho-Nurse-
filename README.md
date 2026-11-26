@@ -33,6 +33,7 @@ See the [architecture](docs/architecture.md) for the data flows and trust bounda
 | [Architecture](docs/architecture.md) | Components and data flows |
 | [Technology choices](docs/tech-stack.md) | What we use and why |
 | [Features](docs/features/README.md) | One page per functional area, with decisions and open points |
+| [Roadmap](docs/roadmap.md) | Order of the work |
 
 ## Getting started
 
@@ -58,6 +59,7 @@ make check   # lint, type check, tests
 
 ```
 .claude/      shared Claude Code settings
+config/       example configuration of both services
 docs/         documentation
 Makefile      development commands
 pyproject.toml, uv.lock   Python tools and locked versions

@@ -30,6 +30,12 @@ catalogue contains five actions.
   must be protected and reviewed like code.
 - **Rate limits.** Configurable for each action. Defaults per hour: 2 for automatic runs and 5
   for manual runs.
+- **Automatic requests.** NURSE accepts a request marked automatic only if the catalogue allows
+  it for that action. A total hourly cap applies whatever the origin, because STETHO could lie
+  about it.
+- **Two timeouts.** The command and the verification of its effect have separate timeouts.
+- **Shared directories.** STETHO and NURSE run as different users and share a group with limited
+  rights.
 
 ## Planned content
 
@@ -37,3 +43,7 @@ catalogue contains five actions.
 - Checks, in order
 - The five actions and their verification
 - Manual and automatic modes, rate limits
+
+## Open points
+
+- Default value of the total hourly cap.

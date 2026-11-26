@@ -1,0 +1,48 @@
+# STETHO settings.
+# Copy to config/stetho.yaml: that file is never committed because it holds secrets.
+# No environment variables are used. Changes apply after a restart.
+
+language: en                 # en | fr | es, chosen at installation
+timezone: Europe/Paris       # used to display times
+
+server:
+  host: 0.0.0.0              # inside the container; only publish it on 127.0.0.1
+  port: 8090
+
+auth:
+  password: ""               # secret; empty means the reverse proxy handles authentication
+
+probe:
+  interval_seconds: 30
+  sensor_timeout_seconds: 5
+
+paths:
+  prescriptions_dir: /shared/prescriptions
+  results_dir: /shared/results
+  state_dir: /state
+
+hermes:
+  data_dir: /hermes          # read-only mount of the Hermes data
+  profiles: auto             # root and profiles/*, or a list
+  profile_labels:
+    default: "Main"
+
+modules:
+  gateway: { enabled: true }
+  platforms: { enabled: true }
+  scheduler: { enabled: true }
+  cron_jobs:
+    enabled: true
+    overrides:
+      late_after_minutes: 15
+      critical_after_failures: 3
+  kanban: { enabled: true, boards: all }
+  sessions: { enabled: true, refresh_minutes: 5, mask_identities: false }
+  weaknesses: { enabled: true }
+
+alerts:
+  channel: discord
+  discord:
+    webhook_url: ""          # secret
+  debounce_checks: 2
+  skip_if_hermes_already_alerted: true

@@ -28,7 +28,7 @@ Status values:
 | Diagnosis | Fixed rules, no LLM | Required | Predictable, reviewable, no token cost |
 | Hermes data access | Read-only mount; SQLite opened with `mode=ro` | Required | Monitoring must never modify Hermes data |
 | API contract | OpenAPI 3.1, written by hand | Required | A single reference for the page, scripts and tests |
-| Configuration | YAML files and environment variables | Required | Nothing specific to an installation lives in the code |
+| Configuration | Files only: YAML for STETHO, TOML for NURSE; no environment variables | Approved | One visible place for each setting; NURSE reads TOML without a dependency |
 | Notifications | Discord or Telegram | Approved | Discord first, Telegram possible later; send only, no reading of messages |
 | NURSE dependencies | Standard library only | Required | The privileged code stays short and reviewable |
 | NURSE action catalogue | TOML (`actions.toml`) | Approved | The specified YAML cannot be read without a dependency |
@@ -96,11 +96,11 @@ maximum duration.
 
 Python cannot read YAML without an extra library.
 
-**Decision.** TOML. The other configuration files stay in YAML.
+**Decision.** TOML. NURSE settings are in TOML too; STETHO files stay in YAML.
 
 | Option | Effect | Drawback |
 | --- | --- | --- |
-| **TOML** (`actions.toml`), chosen | Python reads it on its own (`tomllib`); comments are allowed | Differs from the initial specification; the other settings files stay in YAML |
+| **TOML** (`actions.toml`), chosen | Python reads it on its own (`tomllib`); comments are allowed | Differs from the initial specification; STETHO settings stay in YAML |
 | JSON | Python reads it on its own | No comments, less pleasant to edit by hand |
 | Keep YAML and add PyYAML | Follows the initially specified format | NURSE gets a dependency, against the specification |
 
