@@ -35,3 +35,11 @@ Describes the rights of each component, secrets handling and the remaining risks
 - **Secrets in configuration.** Secrets live in the local configuration files. These are never
   committed, are mounted read-only and are readable only by the administrator and the service
   that needs them. Each service gets only its own file.
+
+## Open points
+
+- **Access to owner-only files.** Several monitored files are readable by their owner only,
+  which conflicts with keeping secret files out of reach. See
+  [file access](../hermes/permissions.md#consequence-1-a-separate-user-cannot-read-the-data).
+- **Read-only SQLite access.** `mode=ro` fails on some idle databases. See
+  [file access](../hermes/permissions.md#consequence-2-modero-does-not-always-work).
