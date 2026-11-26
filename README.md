@@ -59,6 +59,7 @@ make check   # lint, type check, tests
 
 ```
 .claude/      shared Claude Code settings
+.github/      continuous integration
 config/       example configuration of both services
 docs/         documentation
 Makefile      development commands

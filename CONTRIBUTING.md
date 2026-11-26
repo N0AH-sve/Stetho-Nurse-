@@ -40,7 +40,8 @@ make check
 
 4. Commit and push, then open a pull request on GitHub.
 
-There is no continuous integration yet: run the checks yourself before asking for a review.
+Continuous integration runs `make check`, `make hooks`, `make audit` and a secret scan of the
+history on every pull request. It must pass before a merge.
 
 ## Commit messages
 
@@ -109,3 +110,4 @@ or a change of one goes in [technology choices](docs/tech-stack.md).
 - `exclude-newer` in `pyproject.toml` filters out recent releases: move it forward to upgrade,
   keeping at least two weeks of distance.
 - Run `make audit` after changing dependencies.
+- Pin GitHub Actions to a commit SHA and container images to a digest.
