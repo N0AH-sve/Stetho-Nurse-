@@ -12,11 +12,9 @@ Read access to the state, and submission of prescriptions.
 - Authentication and CSRF protection
 - Versioning and contract tests
 
-## Open points
-
-- The draft contract in the specification needs to be completed.
-
 ## Decisions
 
 - Any well-formed action code is accepted; NURSE validates it. See
   [corrective actions](actions.md#decisions).
+- **Contract completion.** It must describe at least the items of a sensor, the action log and
+  how the CSRF token is obtained. It is then versioned in the repository, as the reference.

@@ -80,11 +80,15 @@ never hard-coded.
 - Test error cases as thoroughly as the happy path.
 - A check that cannot be performed must report `unknown`, never `ok`.
 - Nothing specific to an installation is hard-coded.
+- Settings come from configuration files, never from environment variables. A new setting is
+  added to the example file in `config/` in the same change.
 
 ## Security
 
 The repository is public.
 
+- Real configuration files stay local; only the `*.example.*` files are committed, with no
+  secret.
 - Never commit secrets, server addresses, domain names or host paths of a real installation.
 - Never commit real Hermes data (identities, messages, databases, logs). Write test fixtures
   by hand.

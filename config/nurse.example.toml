@@ -1,0 +1,22 @@
+# NURSE settings.
+# Copy to config/nurse.toml (never committed).
+# No environment variables are used. Changes apply after a restart.
+# Limits per action belong to the action catalogue, not to this file.
+
+# Switch for all automatic actions.
+auto_actions = false
+# Total cap over all actions, whatever their origin. The default value is still to be confirmed.
+max_actions_per_hour = 7
+
+[hermes]
+container = "hermes"          # the only container NURSE may act on
+data_dir = "/hermes"          # read-only mount of the Hermes data
+
+[docker]
+proxy_url = "http://docker-proxy:2375"
+
+[paths]
+actions_file = "/config/actions.toml"
+prescriptions_dir = "/shared/prescriptions"
+results_dir = "/shared/results"
+log_dir = "/log"
