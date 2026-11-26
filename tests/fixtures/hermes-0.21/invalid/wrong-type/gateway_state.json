@@ -1,0 +1,1 @@
+{"pid":101,"kind":"hermes-gateway","argv":["hermes","gateway","run"],"start_time":123456,"hermes_home":"/opt/data","gateway_state":"running","exit_reason":null,"restart_requested":false,"active_agents":0,"platforms":[],"session_store":{"status":"ok"},"updated_at":12,"code_sha":null,"code_version":"0.21.4"}

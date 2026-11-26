@@ -1,0 +1,59 @@
+{
+  "jobs": [
+    {
+      "id": "aaaaaaaaaaaa",
+      "name": "Sample report",
+      "prompt": "Made-up prompt, never to be shown",
+      "schedule": {
+        "kind": "interval",
+        "minutes": 60,
+        "display": "every 60m"
+      },
+      "schedule_display": "every 60m",
+      "repeat": {
+        "times": null,
+        "completed": 3
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-01-01T09:00:00+00:00",
+      "next_run_at": "2026-01-15T12:30:00+00:00",
+      "last_run_at": "2026-01-15T11:30:00+00:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "failure_streak": 0,
+      "fire_claim": null
+    },
+    {
+      "id": "bbbbbbbbbbbb",
+      "name": "Sample paused job",
+      "prompt": "Made-up prompt, never to be shown",
+      "schedule": {
+        "kind": "interval",
+        "minutes": 60,
+        "display": "every 60m"
+      },
+      "schedule_display": "every 60m",
+      "repeat": {
+        "times": null,
+        "completed": 3
+      },
+      "enabled": false,
+      "state": "paused",
+      "paused_at": "2026-01-15T09:00:00+00:00",
+      "paused_reason": "Made-up reason",
+      "created_at": "2026-01-01T09:00:00+00:00",
+      "next_run_at": null,
+      "last_run_at": "2026-01-15T11:30:00+00:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "failure_streak": 0,
+      "fire_claim": null
+    }
+  ],
+  "updated_at": "2026-01-15T11:59:00+00:00"
+}

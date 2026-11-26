@@ -9,10 +9,13 @@ repos:
       - id: check-toml
       - id: check-yaml
       - id: check-json
+        exclude: ^tests/fixtures/.*/invalid/ # broken on purpose
       - id: check-executables-have-shebangs
       - id: check-shebang-scripts-are-executable
       - id: detect-private-key
       - id: end-of-file-fixer
+        # Hermes writes ticker markers without a final newline; invalid inputs stay as they are.
+        exclude: ^tests/fixtures/.*(/cron/ticker_|/invalid/)
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
   - repo: https://github.com/gitleaks/gitleaks

@@ -1,0 +1,5 @@
+-- Made-up rows, written by hand.
+INSERT INTO executions (id, job_id, source, process_id, pid, status, claimed_at, started_at, finished_at, error) VALUES ('exec-10', '111111111111', 'builtin', 'proc-1', 101, 'failed', '2026-01-15T11:30:00+00:00', '2026-01-15T11:30:01+00:00', '2026-01-15T11:30:30+00:00', 'Made-up error');
+INSERT INTO executions (id, job_id, source, process_id, pid, status, claimed_at, started_at) VALUES ('exec-11', '444444444444', 'builtin', 'proc-1', 101, 'running', '2026-01-15T09:00:00+00:00', '2026-01-15T09:00:01+00:00');
+INSERT INTO cron_incidents (id, job_id, error_sig, state, failure_type, first_seen_at, last_seen_at, alerted_at, error) VALUES ('111111_000000000001', '111111111111', '000000000001', 'alerted', 'unknown', '2026-01-15T09:30:00+00:00', '2026-01-15T11:30:30+00:00', '2026-01-15T09:30:05+00:00', 'Made-up error');
+INSERT INTO cron_incidents (id, job_id, error_sig, state, failure_type, first_seen_at, last_seen_at, error) VALUES ('555555_000000000002', '555555555555', '000000000002', 'detected', 'config', '2026-01-15T11:30:00+00:00', '2026-01-15T11:30:00+00:00', 'Made-up configuration error');
