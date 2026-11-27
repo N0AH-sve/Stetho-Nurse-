@@ -159,6 +159,22 @@ def test_same_address_written_twice_is_refused() -> None:
     assert error_of(document) == "server.allowed_hosts: the same address is given twice"
 
 
+@pytest.mark.parametrize("name", ["interval_seconds", "sensor_timeout_seconds"])
+@pytest.mark.parametrize("value", [1, 86400])
+def test_probe_duration_within_a_day_is_accepted(name: str, value: int) -> None:
+    config = parse_config(changed(f"probe.{name}", value))
+
+    assert getattr(config.probe, name) == value
+
+
+@pytest.mark.parametrize("name", ["interval_seconds", "sensor_timeout_seconds"])
+@pytest.mark.parametrize("value", [0, 86401, 10**12])
+def test_probe_duration_outside_a_day_is_refused(name: str, value: int) -> None:
+    assert error_of(changed(f"probe.{name}", value)) == (
+        f"probe.{name}: expected a whole number from 1 to 86400"
+    )
+
+
 def test_gateway_thresholds_may_be_changed() -> None:
     document = changed("modules.gateway.overrides", {"down_after_minutes": 10})
 

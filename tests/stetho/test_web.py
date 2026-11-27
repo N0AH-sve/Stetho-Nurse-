@@ -450,6 +450,16 @@ def test_error_in_a_route_shows_nothing_anywhere(
     assert "RuntimeError" in log.getvalue()
 
 
+def test_rhythm_of_the_settings_is_written_at_startup(log: io.StringIO) -> None:
+    document = settings()
+    document["probe"] = {"interval_seconds": 45, "sensor_timeout_seconds": 7}
+
+    with running(parse_config(document)):
+        pass
+
+    assert "STETHO has started: a reading every 45 s, at most 7 s for each sensor" in log.getvalue()
+
+
 @pytest.mark.usefixtures("log")
 def test_probe_runs_while_the_server_does() -> None:
     published = threading.Event()

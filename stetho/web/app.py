@@ -50,7 +50,11 @@ def create_app(config: Config, translator: Translator, probe: Probe, store: Repo
             daemon=True,
         )
         thread.start()
-        _LOG.info("STETHO has started")
+        _LOG.info(
+            "STETHO has started: a reading every %s s, at most %s s for each sensor",
+            config.probe.interval_seconds,
+            config.probe.sensor_timeout_seconds,
+        )
         try:
             yield
         finally:

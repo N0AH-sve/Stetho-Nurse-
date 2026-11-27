@@ -21,6 +21,8 @@ _PRINTABLE_KEY = re.compile(r"[A-Za-z0-9_-]{1,40}")
 _MAX_PORT = 65535
 _MIN_PASSWORD_LENGTH = 16
 _MAX_HOST_LENGTH = 253
+# A guard rail against values that would break the probe, not an advised rhythm.
+_MAX_PROBE_SECONDS = 24 * 60 * 60
 _HOST_LABEL = r"[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?"
 _HOST_NAME = re.compile(rf"{_HOST_LABEL}(?:\.{_HOST_LABEL})*")
 # The thresholds an installation may change, as in the rules of the module.
@@ -377,8 +379,8 @@ def parse_config(document: object) -> Config:
 
     section = root.section("probe")
     probe = ProbeSettings(
-        interval_seconds=section.positive_int("interval_seconds"),
-        sensor_timeout_seconds=section.positive_int("sensor_timeout_seconds"),
+        interval_seconds=section.positive_int("interval_seconds", _MAX_PROBE_SECONDS),
+        sensor_timeout_seconds=section.positive_int("sensor_timeout_seconds", _MAX_PROBE_SECONDS),
     )
     section.close()
 

@@ -41,6 +41,10 @@ web server is given all its settings, so that it reads no environment variable.
   every written form of an IPv6 address is the same.
 - **Characters.** No text may hold a NUL or half of a Unicode surrogate pair.
 - **Numbers.** Ports go from 1 to 65535; durations and counts are whole numbers greater than 0.
+- **Probe durations.** `probe.interval_seconds` and `probe.sensor_timeout_seconds` go from 1 to
+  86400 seconds (24 hours). This is a guard rail against values that would break the probe, not
+  an advised rhythm: the installation chooses it. At startup, the log says what the two settings
+  give.
 - **Paths.** Directories are absolute paths. Whether they exist is not checked at startup: a
   missing source is reported while STETHO runs.
 - **Names.** `hermes.profiles` is `auto` or a list, and `modules.kanban.boards` is `all` or a

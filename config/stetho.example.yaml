@@ -19,6 +19,7 @@ auth:
   password: ""
 
 probe:
+  # Both from 1 to 86400 seconds (24 hours). These are limits, not advice.
   interval_seconds: 30
   sensor_timeout_seconds: 5
 

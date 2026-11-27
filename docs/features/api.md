@@ -110,9 +110,12 @@ There is no redirection for a trailing slash.
   request.
 - **Limit.** Anyone who reaches the port can fill the log without a password: an invalid request,
   or one that asks for another protocol, writes a line of the web server, without its message.
-- **Limit.** STETHO bounds neither the number of connections nor the time to send the headers of
-  a request. Many idle connections could use up the files the process may open, which the
-  sensors need too. Only the reverse proxy reduces this.
+- **Connections.** STETHO bounds neither the number of connections nor the time to send the
+  headers of a request, and this is accepted: 3 or 4 users at most are expected, on one account.
+  A limit of that size would be wrong, since one browser opens several connections. **Limit:**
+  this holds only if nobody else reaches the port. Many idle connections, even without a
+  password, could use up the files the process may open, which the sensors need too. The port
+  must stay bound to `127.0.0.1`, behind the reverse proxy.
 
 **CSRF** (with the actions, not implemented). A token signed with a random key made at startup,
 valid for 12 hours, sent in `X-CSRF-Token`. The submission accepts JSON only and refuses a
@@ -131,8 +134,6 @@ Only the format of the error responses is checked against the contract. Full con
 will use `openapi-schema-validator`, which is typed, instead of `jsonschema`, which is not.
 
 ## Open points
-
-- **Connections.** Whether STETHO limits the connections itself. See the [limits](#security).
 
 To settle before the [actions](#actions) are served:
 
