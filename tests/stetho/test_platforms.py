@@ -130,6 +130,45 @@ def test_delay_starts_again_after_a_connection(tmp_path: Path) -> None:
     assert only(result).status is Status.WARN
 
 
+def run_at(item: PlatformsSensor, home: Path, minutes: float, **changes: Any) -> SensorResult:
+    moment = NOW + timedelta(minutes=minutes)
+    options: dict[str, Any] = {"updated_at": moment.isoformat()} | changes.pop("state_file", {})
+    entry = platform("retrying", **changes)
+    entry["writer_pid"] = options.get("pid", 101)
+    write(home, {"discord": entry}, **options)
+    return read(item, moment).result
+
+
+def test_a_late_reading_of_the_gateway_does_not_restart_the_delay(tmp_path: Path) -> None:
+    gateway = sensor(tmp_path)
+    run_at(gateway, tmp_path, 0)
+    late = (NOW + timedelta(minutes=1)).isoformat()
+    skipped = run_at(gateway, tmp_path, 4, state_file={"updated_at": late})
+
+    result = run_at(gateway, tmp_path, 6)
+
+    assert skipped.assessed is False
+    assert only(result).status is Status.CRITICAL
+
+
+def test_a_new_gateway_process_restarts_the_delay(tmp_path: Path) -> None:
+    gateway = sensor(tmp_path)
+    run_at(gateway, tmp_path, 0)
+
+    result = run_at(gateway, tmp_path, 6, state_file={"pid": 202})
+
+    assert only(result).status is Status.WARN
+
+
+def test_a_date_moved_forward_still_ends_in_critical(tmp_path: Path) -> None:
+    gateway = sensor(tmp_path)
+    for minutes in (0, 3, 6):
+        moved = (NOW + timedelta(minutes=minutes)).isoformat()
+        result = run_at(gateway, tmp_path, minutes, retrying_since=moved)
+
+    assert only(result).status is Status.CRITICAL
+
+
 def test_threshold_can_be_changed(tmp_path: Path) -> None:
     write(tmp_path, {"discord": platform("retrying", retrying_since=since(8))})
     gateway = sensor(tmp_path, platforms={"overrides": {"critical_after_minutes": 10}})
@@ -389,6 +428,35 @@ def test_without_the_gateway_module_a_missing_field_is_reported_here(tmp_path: P
     assert [(a.module, a.field) for a in outcome.anomalies] == [("platforms", "updated_at")]
 
 
+@pytest.mark.parametrize(
+    "gateway",
+    [
+        {"gateway_state": "stopped"},
+        {"gateway_state": "startup_failed"},
+        {"updated_at": (NOW - timedelta(minutes=30)).isoformat()},
+    ],
+)
+def test_without_the_gateway_module_a_dead_gateway_is_a_problem_here(
+    tmp_path: Path, gateway: dict[str, Any]
+) -> None:
+    write(tmp_path, {"discord": platform()}, **gateway)
+
+    result = read(sensor(tmp_path, gateway={"enabled": False})).result
+
+    assert (result.status, result.assessed) == (Status.UNKNOWN, True)
+    assert result.summary == (
+        "The platforms cannot be checked: the gateway is not running normally"
+    )
+    assert result.advice == "Check that the Hermes gateway runs, and read its logs."
+    assert only(result).assessed is False
+
+
+def test_repair_is_offered_when_no_intent_is_written(tmp_path: Path) -> None:
+    entry = platform("retrying", retrying_since=since(10))
+
+    assert only(card(tmp_path, {"discord": entry})).actions == ("RESTART_GATEWAY",)
+
+
 def test_free_text_never_appears(tmp_path: Path) -> None:
     entry = platform("retrying", error_message=MARKER, error_code=MARKER)
     write(tmp_path, {"discord": entry}, exit_reason=MARKER)
@@ -498,10 +566,11 @@ def test_every_text_of_the_module_exists(language: Language) -> None:
     summaries = (
         "connected", "disabled", "paused", "broken", "unknown_state", "attention", "old",
         "not_assessed", "unusable", "none_current", "nothing", "partly_assessed",
+        "gateway_down",
     )  # fmt: skip
     advices = (
         "check_settings", "check_connection", "wait", "check_version", "check_attention",
-        "check_data",
+        "check_data", "check_gateway",
     )  # fmt: skip
 
     for name in summaries:

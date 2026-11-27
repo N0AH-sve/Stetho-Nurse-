@@ -69,6 +69,17 @@ class PlatformsReading:
     anomalies: tuple[Anomaly, ...]  # those of this module
     # Those of the rest of the file, for when no `gateway` module reports them.
     file_anomalies: tuple[Anomaly, ...] = ()
+    # Identifies the gateway process that wrote the file.
+    process: tuple[object, object] = (None, None)
+
+
+def _process(document: Mapping[str, object]) -> tuple[object, object]:
+    pid, start = document.get("pid"), document.get("start_time")
+    # Only numbers: anything else could not be compared, nor kept in memory.
+    return (
+        pid if isinstance(pid, int) else None,
+        start if isinstance(start, int) else None,
+    )
 
 
 class _Parser:
@@ -93,7 +104,7 @@ class _Parser:
         if not isinstance(platforms, dict):
             self._unusable("platforms")
             return ()
-        process = (document.get("pid"), document.get("start_time"))
+        process = _process(document)
         found = []
         for key in sorted(platforms, key=str):
             entry = self._entry(key, platforms[key], process)
@@ -181,5 +192,11 @@ def read_platforms(
     parser = _Parser(read.source, adapters.platforms, now)
     entries = parser.entries(read.document)
     return PlatformsReading(
-        profile, read.state, entries, parser.complete, tuple(parser.anomalies), file_anomalies
+        profile,
+        read.state,
+        entries,
+        parser.complete,
+        tuple(parser.anomalies),
+        file_anomalies,
+        _process(read.document),
     )

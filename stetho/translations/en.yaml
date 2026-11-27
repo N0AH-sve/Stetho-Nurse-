@@ -155,6 +155,7 @@ platforms:
     attention: "This platform asks for attention"
     old: "Former state, not checked"
     partly_assessed: "Some platforms are not assessed, and something in the data of the others is unexpected"
+    gateway_down: "The platforms cannot be checked: the gateway is not running normally"
     not_assessed: "Not assessed: the gateway is not running normally"
     unusable: "The platforms cannot be checked"
     none_current: "No platform state comes from the running gateway"
@@ -167,6 +168,7 @@ platforms:
     wait: "Wait a few minutes. If it lasts, read the Hermes logs."
     check_version: "Check the version of Hermes: STETHO may need an update."
     check_attention: "Read the Hermes logs to see what this platform needs."
+    check_gateway: "Check that the Hermes gateway runs, and read its logs."
     check_data: "Check the version of Hermes and that STETHO can read its data."
   detail:
     error: "Error"
