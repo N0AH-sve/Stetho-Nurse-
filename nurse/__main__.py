@@ -11,7 +11,7 @@ from types import FrameType
 
 from nurse.hermes import HermesReader
 from nurse.reception import Reception
-from nurse.records import lock_instance, remove_temporary_files
+from nurse.records import StateError, lock_instance, remove_temporary_files
 from nurse.settings import SettingsError, load_catalogue, load_settings
 
 _LOG = logging.getLogger("nurse")
@@ -57,11 +57,25 @@ def main(arguments: Sequence[str] | None = None, stop: threading.Event | None = 
         signal.signal(signal.SIGINT, handle)
         signal.signal(signal.SIGTERM, handle)
     try:
-        for folder in (settings.log_dir, settings.results_dir):
-            remove_temporary_files(folder)
+        try:
+            for folder in (settings.log_dir, settings.results_dir):
+                remove_temporary_files(folder)
+        except OSError as error:
+            # The message could hold a path of the installation.
+            _LOG.error("NURSE cannot start: %s while cleaning its folders", type(error).__name__)
+            return _CANNOT_START
         _LOG.warning("NURSE checks requests but runs no action yet")
         reader = HermesReader(settings.data_dir)
-        watch(Reception(settings, actions, check_hermes=reader), stopping)
+        reception = Reception(settings, actions, check_hermes=reader)
+        try:
+            reception.recover()
+        except StateError:
+            _LOG.error("NURSE cannot start: its state cannot be read")
+            return _CANNOT_START
+        except OSError:
+            _LOG.error("NURSE cannot start: an interrupted action cannot be answered")
+            return _CANNOT_START
+        watch(reception, stopping)
     finally:
         os.close(lock)
     _LOG.info("NURSE stopped")
