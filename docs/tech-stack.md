@@ -17,6 +17,7 @@ Status values:
 | Type information for PyYAML | `types-PyYAML`, development only | In place | PyYAML ships no types, which strict mode needs |
 | Tests | pytest, pytest-cov | In place | De facto standard, with coverage |
 | Pre-commit checks | pre-commit, gitleaks | In place | Secrets and errors are caught before a commit |
+| API response checks | `openapi-schema-validator`, development only, instead of `jsonschema` | Approved | It ships types, which strict mode needs |
 | API contract checks | `openapi-spec-validator`, development only | In place | Checks that the hand-written contract is valid OpenAPI 3.1 |
 | Dependency audit | pip-audit | In place | Reports known vulnerabilities |
 | Task runner | Make | In place | Already available, one entry point for all commands |

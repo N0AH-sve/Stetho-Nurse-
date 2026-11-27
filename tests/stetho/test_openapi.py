@@ -1,15 +1,16 @@
 """Checks of the hand-written contract itself. The responses are checked against it elsewhere."""
 
 import re
+from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
 import pytest
 from openapi_spec_validator import validate
 
-from stetho.anomalies import AnomalyCode, UnreadableReason
+from stetho.anomalies import _SAFE_VALUE, Anomaly, AnomalyCode, UnreadableReason
 from stetho.patterns import ACTION_CODE, ACTION_TARGET, SENSOR_ID
-from stetho.results import Status
+from stetho.results import Item, SensorResult, Status
 from stetho.yamlfile import load_yaml
 
 CONTRACT_FILE = Path(__file__).parents[2] / "stetho" / "openapi.yaml"
@@ -149,9 +150,161 @@ def test_responses_and_exchanged_files_require_every_field() -> None:
 
 
 def test_request_holds_only_what_reaches_nurse() -> None:
-    assert set(SCHEMAS["PrescriptionRequest"]["properties"]) <= set(
-        SCHEMAS["Prescription"]["properties"]
-    )
+    request = set(SCHEMAS["PrescriptionRequest"]["properties"])
+
+    assert request == {"action", "target"}
+    assert request <= set(SCHEMAS["Prescription"]["properties"])
+
+
+def names(kind: type) -> set[str]:
+    return {item.name for item in fields(kind)}
+
+
+@pytest.mark.parametrize(
+    ("schema", "expected"),
+    [
+        # `advice` is not in the code yet; `stale` is added when the result is served.
+        ("Sensor", names(SensorResult) | {"advice", "stale"}),
+        ("Item", names(Item) | {"advice"}),
+        # The register adds the identifier and the times; the message is the translated text.
+        (
+            "Anomaly",
+            names(Anomaly)
+            | {"id", "message", "received_hidden", "first_seen", "last_seen", "count"},
+        ),
+        ("AnomalyList", {"checked_at", "stale", "anomalies"}),
+        (
+            "StatusReport",
+            {"status", "summary", "checked_at", "stale", "anomaly_count", "sensors"},
+        ),
+        ("Prescription", {"rx_id", "action", "target", "origin", "requested_by", "created_at"}),
+        (
+            "PrescriptionResult",
+            {
+                "rx_id",
+                "status",
+                "refusal_reason",
+                "exit_code",
+                "output_excerpt",
+                "anomaly",
+                "started_at",
+                "finished_at",
+                "verified",
+            },
+        ),
+    ],
+)
+def test_objects_hold_exactly_the_decided_fields(schema: str, expected: set[str]) -> None:
+    assert set(SCHEMAS[schema]["properties"]) == expected
+
+
+# The status codes of each route.
+READ = {"200", "400", "401", "405", "500"}
+CODES = {
+    ("GET", "/health"): {"200", "400", "405", "500"},
+    ("GET", "/api/v1/status"): READ,
+    ("GET", "/api/v1/sensors/{sensor_id}"): READ | {"404"},
+    ("GET", "/api/v1/anomalies"): READ,
+    ("GET", "/api/v1/openapi.json"): READ,
+    ("GET", "/api/docs"): READ,
+    ("GET", "/api/v1/csrf-token"): READ,
+    ("POST", "/api/v1/prescriptions"): {
+        "202",
+        "400",
+        "401",
+        "403",
+        "405",
+        "413",
+        "415",
+        "429",
+        "500",
+    },
+    ("GET", "/api/v1/prescriptions/{rx_id}"): READ | {"404"},
+    ("GET", "/api/v1/actions"): READ,
+}
+
+
+@pytest.mark.parametrize("key", sorted(OPERATIONS))
+def test_each_route_has_exactly_its_status_codes(key: tuple[str, str]) -> None:
+    assert set(OPERATIONS[key]["responses"]) == CODES[key]
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [("/api/v1/anomalies", [("module", "query"), ("code", "query")]), ("/api/v1/status", [])],
+)
+def test_filters_are_exactly_the_decided_ones(path: str, expected: list[tuple[str, str]]) -> None:
+    parameters = OPERATIONS["GET", path].get("parameters", [])
+
+    assert [(item["name"], item["in"]) for item in parameters] == expected
+
+
+@pytest.mark.parametrize(
+    ("response", "header"), [("Unauthorized", "WWW-Authenticate"), ("MethodNotAllowed", "Allow")]
+)
+def test_error_responses_require_their_header(response: str, header: str) -> None:
+    assert CONTRACT["components"]["responses"][response]["headers"][header]["required"] is True
+
+
+def test_other_enumerations_are_the_decided_ones() -> None:
+    assert SCHEMAS["PrescriptionResult"]["properties"]["status"]["enum"] == [
+        "queued",
+        "done",
+        "refused",
+        "failed",
+        "timeout",
+        "unexpected",
+        "unverified",
+    ]
+    assert SCHEMAS["Prescription"]["properties"]["origin"]["enum"] == ["manual", "auto"]
+    assert SCHEMAS["Error"]["properties"]["code"]["enum"] == [
+        "invalid_request",
+        "invalid_host",
+        "unauthorized",
+        "not_found",
+        "method_not_allowed",
+        "internal_error",
+        "csrf_invalid",
+        "cross_site",
+        "payload_too_large",
+        "unsupported_media_type",
+        "bad_target",
+        "rate_limited",
+    ]
+
+
+def test_sizes_are_bounded() -> None:
+    log = OPERATIONS["GET", "/api/v1/actions"]["responses"]["200"]["content"]
+
+    assert log["application/json"]["schema"]["maxItems"] == 100
+    assert SCHEMAS["PrescriptionResult"]["properties"]["output_excerpt"]["maxLength"] == 2048
+    assert SCHEMAS["CsrfToken"]["properties"]["token"]["maxLength"] == 256
+
+
+@pytest.mark.parametrize(
+    ("value", "accepted"),
+    [
+        ("2026-01-15T12:00:00Z-7f3a", True),
+        ("a" * 64, True),
+        ("a" * 65, False),
+        ("", False),
+        ("..", False),
+        (".hidden", False),
+        ("-option", False),
+        ("../x", False),
+        ("a/b", False),
+        ("a\n", False),
+    ],
+)
+def test_identifier_that_may_name_a_file_is_safe(value: str, accepted: bool) -> None:
+    # `fullmatch`, as the code must check: a Python validator would accept a final newline.
+    assert bool(re.fullmatch(SCHEMAS["PrescriptionId"]["pattern"], value)) is accepted
+
+
+def test_received_value_is_filtered_as_in_the_code() -> None:
+    pattern = SCHEMAS["Anomaly"]["properties"]["received"]["pattern"]
+
+    assert pattern == f"^{_SAFE_VALUE.pattern}$"
 
 
 @pytest.mark.parametrize(

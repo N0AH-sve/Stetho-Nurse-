@@ -62,6 +62,10 @@ Described now, served later.
 - **Requester.** `requested_by` has up to 64 characters and no control character.
 - **Refusal.** `refusal_reason` is a short code of up to 128 characters. The codes come with
   NURSE.
+- **Checking values.** The patterns of the contract follow the JSON Schema rules, where `$` is the
+  very end. Python lets `$` match before a final newline, so a validator written in Python accepts
+  `RESTART\n`. The code must check a received value on its whole length (`fullmatch`, with the
+  patterns of the code), never with the schema alone. This also applies to NURSE.
 
 ## Security
 
@@ -89,6 +93,15 @@ Decided, and not implemented yet.
 that its routes, protections, errors, enumerations and patterns match the decisions and the code.
 No response is checked yet. These checks will use `openapi-schema-validator`, which is typed,
 instead of `jsonschema`, which is not.
+
+## Open points
+
+To settle before the [actions](#actions) are served:
+
+- **Error codes and statuses.** The contract does not say which `code` goes with which status.
+  `bad_target` has no stated use next to `invalid_request`.
+- **Malformed `rx_id`.** Whether `GET /api/v1/prescriptions/{rx_id}` answers 404, as for a
+  sensor, or 400.
 
 ## Decisions
 
