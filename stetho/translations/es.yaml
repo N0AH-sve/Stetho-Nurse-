@@ -7,3 +7,4 @@ status:
   unknown: "Desconocido"
 banner:
   all_ok: "Todo funciona"
+  nothing_checked: "No se ha podido comprobar nada"

@@ -1,7 +1,7 @@
 # Architecture
 
-> Target architecture. Only the loading of the STETHO settings and translations is
-> implemented.
+> Target architecture. Only parts of the STETHO core are implemented: settings, translations,
+> statuses and the result format of the sensors.
 
 ## Goal
 

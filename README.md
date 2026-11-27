@@ -5,7 +5,8 @@ whether it works, get an alert when it breaks, and repair it with predefined act
 itself is neither modified nor upgraded, and no LLM is involved.
 
 > **Status: early development.** The repository contains the development environment, the
-> documentation, and the loading of the STETHO settings and translations. Nothing can be run yet.
+> documentation, and the first parts of STETHO: settings, translations, statuses and the result
+> format of the sensors. Nothing can be run yet.
 
 ## How it works
 
