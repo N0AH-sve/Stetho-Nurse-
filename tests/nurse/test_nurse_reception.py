@@ -1395,3 +1395,13 @@ def test_identifiers_lost_while_running_are_not_a_first_start(tmp_path: Path, bo
     assert list((tmp_path / "results").iterdir()) == []
     assert [line["result"]["refusal_reason"] for line in journal(tmp_path)] == ["state_unreadable"]
     assert not (tmp_path / "log" / "started.json").exists()
+
+
+def test_old_pending_action_keeps_its_identifier(tmp_path: Path) -> None:
+    settings(tmp_path)
+    state = State()
+    for rx_id, at in (("old", EPOCH - 9 * 86400), ("new", EPOCH)):
+        launch = Launch(at, "RERUN_JOB", "manual", False)
+        records.start_action(tmp_path / "log", state, request(rx_id), launch, STARTED)
+
+    assert "old" in records.load_started(tmp_path / "log")
