@@ -72,8 +72,9 @@ def main(arguments: Sequence[str] | None = None, stop: threading.Event | None = 
         except StateError:
             _LOG.error("NURSE cannot start: its state cannot be read")
             return _CANNOT_START
-        except OSError:
-            _LOG.error("NURSE cannot start: an interrupted action cannot be answered")
+        except OSError as error:
+            # The message could hold a path of the installation.
+            _LOG.error("NURSE cannot start: %s while preparing its state", type(error).__name__)
             return _CANNOT_START
         watch(reception, stopping)
     finally:

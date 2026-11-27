@@ -92,7 +92,12 @@ class State:
         self.handled = {k: at for k, at in self.handled.items() if now - at < HANDLED_SECONDS}
         # A launch dated in the future, after a change of the clock, is kept and counted.
         self.launches = [item for item in self.launches if now - item.at < LAUNCH_SECONDS]
-        self.started = {k: at for k, at in self.started.items() if now - at < STARTED_SECONDS}
+        # An action that the state still lists is never forgotten, however old: with an unusable
+        # state, this file alone protects it.
+        listed = self.pending.keys() | {entry["result"]["rx_id"] for entry in self.actions}
+        self.started = {
+            k: at for k, at in self.started.items() if k in listed or now - at < STARTED_SECONDS
+        }
 
     def known_actions(self) -> frozenset[str]:
         """The identifiers that belong to an action: none may be answered or used again."""
@@ -240,14 +245,17 @@ def create_started(log_dir: Path, state: State) -> None:
         _write_atomically(log_dir / STARTED_NAME, state.started, 0o600)
 
 
-def load_state(log_dir: Path) -> State:
-    """Missing files are a first start. Any other doubt raises `StateError`."""
+def load_state(log_dir: Path, running: bool = False) -> State:
+    """Missing files are a first start. Any other doubt raises `StateError`.
+
+    A `running` NURSE has created the identifiers of the actions: missing, they were lost.
+    """
     document = _read_json(log_dir, STATE_NAME)
     state = State() if document is _MISSING else _parse_state(document)
     started = _read_json(log_dir, STARTED_NAME)
     if started is _MISSING:
         # Losing the identifiers of actions that the state still knows is not a first start.
-        if state.pending or state.actions:
+        if running or state.pending or state.actions:
             raise StateError
     else:
         state.started = _parse_started(started)

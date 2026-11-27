@@ -78,9 +78,9 @@ def drop(tmp_path: Path, content: object, name: str = "rx-1.json") -> Path:
 
 
 def reception(tmp_path: Path, check: HermesCheck = refuse_unchecked, **kwargs: Any) -> Reception:
-    return Reception(
-        settings(tmp_path), ACTIONS, kwargs.get("clock", lambda: NOW), check_hermes=check
-    )
+    configured = settings(tmp_path)
+    records.create_started(configured.log_dir, State())  # as when NURSE starts
+    return Reception(configured, ACTIONS, kwargs.get("clock", lambda: NOW), check_hermes=check)
 
 
 def allow(*_: object) -> str | None:
@@ -399,6 +399,7 @@ def test_what_stetho_reads_can_be_read_by_its_group_only(tmp_path: Path) -> None
         "rx-1.json": 0o640,
         "_log.json": 0o640,
         "state.json": 0o600,
+        "started.json": 0o600,
         "journal.jsonl": 0o600,
     }
 
@@ -934,8 +935,11 @@ def test_action_older_than_the_last_80_is_still_known(
     assert log(tmp_path)[0]["result"]["refusal_reason"] == "duplicate"
 
 
-def test_identifiers_of_actions_are_forgotten_after_8_days(tmp_path: Path) -> None:
-    reception(tmp_path)
+def test_identifiers_of_actions_are_forgotten_after_8_days(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(records, "LOG_ACTIONS", 0)  # none stays listed in the state
+    settings(tmp_path)
     state = State()
     started_and_done(tmp_path, state, "old", EPOCH - 8 * 86400)
     started_and_done(tmp_path, state, "kept", EPOCH - 8 * 86400 + 1)
@@ -953,7 +957,7 @@ def test_most_actions_that_8_days_can_hold_can_be_loaded_again(tmp_path: Path) -
 
 
 def test_program_does_not_start_when_recovery_cannot_be_written(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     def broken(_: Reception) -> None:
         raise OSError
@@ -965,6 +969,7 @@ def test_program_does_not_start_when_recovery_cannot_be_written(
     monkeypatch.setattr("signal.signal", lambda *_: None)
 
     assert program.main(["--config", "unused"]) == 2
+    assert "OSError while preparing its state" in caplog.text
     os.close(records.lock_instance(configured.log_dir))
 
 
@@ -1349,11 +1354,44 @@ def test_full_state_never_answers_for_an_action(
 
 
 def test_start_creates_the_identifiers_once(tmp_path: Path) -> None:
-    reception(tmp_path).recover()
+    service = reception(tmp_path)
     path = tmp_path / "log" / "started.json"
+    path.unlink()
+    service.recover()
     assert path.read_text() == "{}"
     path.write_text(json.dumps({"a": EPOCH}))
 
     reception(tmp_path).recover()
 
     assert json.loads(path.read_text()) == {"a": EPOCH}
+
+
+def test_old_action_listed_in_the_state_keeps_its_protection(tmp_path: Path) -> None:
+    service = reception(tmp_path, allow)
+    state = State()
+    started_and_done(tmp_path, state, "old", EPOCH - 9 * 86400)
+    started_and_done(tmp_path, state, "new", EPOCH)
+    (tmp_path / "results" / "old.json").unlink()  # removed after 7 days
+    (tmp_path / "log" / "state.json").write_bytes(b"{")
+    drop(tmp_path, request("old"), "old.json")
+
+    service.run_once()
+
+    assert not (tmp_path / "results" / "old.json").exists()
+
+
+@pytest.mark.parametrize("both", [True, False])
+def test_identifiers_lost_while_running_are_not_a_first_start(tmp_path: Path, both: bool) -> None:
+    service = running_with_an_action(tmp_path)
+    (tmp_path / "log" / "started.json").unlink()
+    if both:
+        (tmp_path / "log" / "state.json").unlink()
+    else:
+        (tmp_path / "log" / "state.json").write_bytes(with_state())
+    drop(tmp_path, request())
+
+    service.run_once()
+
+    assert list((tmp_path / "results").iterdir()) == []
+    assert [line["result"]["refusal_reason"] for line in journal(tmp_path)] == ["state_unreadable"]
+    assert not (tmp_path / "log" / "started.json").exists()

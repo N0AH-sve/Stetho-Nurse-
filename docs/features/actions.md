@@ -171,7 +171,7 @@ unfinished after a crash blocks a rerun until Hermes clears it.
 | --- | --- |
 | `log_dir/state.json` | Handled identifiers, started and pending actions, and the last entries. Saved before anything is answered. A missing file is a first start; an unusable one refuses everything and is never overwritten |
 | `log_dir/journal.jsonl` | One line per refused request: 5 files of 1 MiB at most |
-| `log_dir/started.json` | The identifiers of the actions, kept 8 days after they end. Written before the state; unusable, or missing while the state knows actions, it refuses everything |
+| `log_dir/started.json` | The identifiers of the actions, kept 8 days after they end, and longer while the state lists them. Written before the state. Created at startup: unusable or then missing, it refuses everything |
 | `log_dir/actions.jsonl` | One line per ended action, with the same limit. A refusal never writes here |
 | `results_dir/<rx_id>.json` | The result, readable by the group. The first answer to an identifier is never replaced. Removed after 7 days. Above 1000, the oldest refusals are removed; the results of the actions in the log do not count |
 | `results_dir/_log.json` | The last 80 actions and the last 20 refused requests, the most recent first. No identifier can take this name |
@@ -196,12 +196,14 @@ leaves the requests waiting.
   NURSE starts, a pending action keeps the answer already written, or is answered `unverified`.
   It is never run again. If this cannot be written, NURSE does not start. The journal of the
   actions is synced to disk.
-- **The identifiers of the started actions are kept for 8 days after the action ends** in a file
-  apart. A request that reuses one is a `duplicate` and never replaces its result, which does not count in the limit of
-  1000. A result itself goes after 7 days.
+- **The identifiers of the started actions are kept for 8 days after the action ends,** and as
+  long as the state lists the action among the pending ones or the last 80, in a file apart. A
+  request that reuses one is a `duplicate` and never replaces its result, which does not count in
+  the limit of 1000. A result itself goes after 7 days.
 - **NURSE does not start with an unusable state:** it could not tell what was interrupted. It
   says so in its logs, and no request is answered until the state is repaired. A state that
-  becomes unusable while NURSE runs refuses everything.
+  becomes unusable while NURSE runs refuses everything. So does the loss of `started.json`
+  while NURSE runs, even when `state.json` is lost with it: this is not a first start.
 - **Such a refusal never answers for an action.** The identifiers of the actions are then read
   apart, from `started.json`: their requests are journaled and deleted without any result file.
   If that file cannot be read either, or is missing, no result file is written at all: NURSE

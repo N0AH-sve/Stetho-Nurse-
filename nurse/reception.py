@@ -203,7 +203,7 @@ class Reception:
 
     def _load(self) -> State | None:
         try:
-            state = load_state(self._settings.log_dir)
+            state = load_state(self._settings.log_dir, running=True)
         except StateError:
             if not self._state_failed:
                 _LOG.error("the state of NURSE cannot be read: every request is refused")
