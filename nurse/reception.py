@@ -3,16 +3,18 @@
 The prescription folder is written by STETHO, the exposed service: everything in it is hostile.
 """
 
+import heapq
 import json
 import logging
 import os
 import re
 import stat
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 
 from nurse.records import (
+    MAX_HANDLED,
     Entry,
     State,
     StateError,
@@ -31,12 +33,15 @@ _LOG = logging.getLogger("nurse")
 RX_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_:.-]{0,63}")
 _REQUESTER = re.compile(r"[^\x00-\x1f\x7f-\x9f\ud800-\udfff]{1,64}")
 _TIMESTAMP = re.compile(
-    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?(Z|[+-][0-9]{2}:[0-9]{2})"
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?"
+    r"(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])"
 )
 _FIELDS = {"rx_id", "action", "target", "origin", "requested_by", "created_at"}
 _SUFFIX = ".json"
 MAX_REQUEST_BYTES = 4096
 MAX_PER_PASS = 20
+MAX_STUCK = 1000
+_PRUNE_EVERY = timedelta(minutes=1)
 MAX_AGE = timedelta(minutes=5)
 MAX_ADVANCE = timedelta(minutes=1)
 RESTART_SPACING_SECONDS = 120  # between two restarts, of either kind and any origin
@@ -154,6 +159,8 @@ class Reception:
         self._clock = clock
         self._check_hermes = check_hermes
         self._stuck: set[str] = set()  # files that could not be handled: not tried every second
+        self._pruned_at: datetime | None = None
+        self._state_failed = False  # said once, not every second
 
     def run_once(self) -> int:
         """Handles a few waiting requests and returns their number."""
@@ -161,35 +168,58 @@ class Reception:
         folder = os.open(self._settings.prescriptions_dir, flags)
         try:
             names = self._waiting(folder)
-            if not names:
-                return 0
-            try:
-                state: State | None = load_state(self._settings.log_dir)
-            except StateError:
-                _LOG.error("the state of NURSE cannot be read: every request is refused")
-                state = None
-            for name in names:
-                self._handle(folder, name, state)
+            if names:
+                state = self._load()
+                for name in names:
+                    self._handle(folder, name, state)
         finally:
             os.close(folder)
-        now = self._clock().timestamp()
-        prune_results(self._settings.results_dir, now)
+        self._prune(bool(names))
         return len(names)
 
+    def _load(self) -> State | None:
+        try:
+            state = load_state(self._settings.log_dir)
+        except StateError:
+            if not self._state_failed:
+                _LOG.error("the state of NURSE cannot be read: every request is refused")
+            self._state_failed = True
+            return None
+        self._state_failed = False
+        return state
+
+    def _prune(self, handled: bool) -> None:
+        """Old results go even when no request arrives."""
+        now = self._clock()
+        if handled or self._pruned_at is None or abs(now - self._pruned_at) >= _PRUNE_EVERY:
+            prune_results(self._settings.results_dir, now.timestamp())
+            self._pruned_at = now
+
     def _waiting(self, folder: int) -> list[str]:
-        """Names `<rx_id>.json` that are not folders. Anything else is left alone."""
-        found = []
-        with os.scandir(folder) as entries:
-            for entry in entries:
-                name = entry.name
-                if (
-                    name.endswith(_SUFFIX)
-                    and RX_ID.fullmatch(name.removesuffix(_SUFFIX))
-                    and not entry.is_dir(follow_symlinks=False)
-                ):
-                    found.append(name)
-        self._stuck.intersection_update(found)
-        return sorted(set(found) - self._stuck)[:MAX_PER_PASS]
+        """The first names `<rx_id>.json` that are not folders. Anything else is left alone.
+
+        STETHO may fill the folder: the names are never all held in memory.
+        """
+        still_stuck: set[str] = set()
+
+        def candidates() -> Iterator[str]:
+            with os.scandir(folder) as entries:
+                for entry in entries:
+                    name = entry.name
+                    if (
+                        name.endswith(_SUFFIX)
+                        and RX_ID.fullmatch(name.removesuffix(_SUFFIX))
+                        and not entry.is_dir(follow_symlinks=False)
+                    ):
+                        if name in self._stuck:
+                            still_stuck.add(name)
+                        else:
+                            yield name
+
+        found = heapq.nsmallest(MAX_PER_PASS, candidates())
+        self._stuck = still_stuck
+        # With too many files that cannot be handled, nothing more is tried.
+        return [] if len(still_stuck) >= MAX_STUCK else found
 
     def _handle(self, folder: int, name: str, state: State | None) -> None:
         rx_id = name.removesuffix(_SUFFIX)
@@ -209,25 +239,30 @@ class Reception:
     ) -> None:
         seconds = int(now.timestamp())
         answered = result_path(self._settings.results_dir, rx_id).exists()
+        if state is not None:
+            state.forget(seconds)
+            if len(state.handled) >= MAX_HANDLED:
+                state = None  # nothing more could be remembered
         if state is None:
             reason = "state_unreadable"
+        elif answered or rx_id in state.handled:
+            reason = "duplicate"
+        elif prescription is None:
+            reason = "invalid_request"
         else:
-            state.forget(seconds)
-            if answered or rx_id in state.handled:
-                reason = "duplicate"
-            elif prescription is None:
-                reason = "invalid_request"
-            else:
-                reason = self._refusal(prescription, state, now)
+            reason = self._refusal(prescription, state, now)
         entry: Entry = {
             "prescription": None if prescription is None else asdict(prescription),
             "result": _refused(rx_id, reason, now),
         }
         if state is not None:
             # Saved first: nothing may be answered, or later run, without being remembered.
-            state.handled[rx_id] = seconds
-            state.remember(entry)
-            save_state(self._settings.log_dir, state)
+            saved = state.copy()
+            saved.handled[rx_id] = seconds
+            saved.remember(entry)
+            save_state(self._settings.log_dir, saved)
+            # Changed only once saved: a failure must leave no trace for the next request.
+            state.handled, state.recent = saved.handled, saved.recent
         append_journal(self._settings.log_dir, entry)
         # The first answer to an identifier is never replaced.
         if not answered:

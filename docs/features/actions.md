@@ -108,6 +108,10 @@ other names and folders are left alone, so STETHO writes a request under a name 
 dot and then renames it. A request is a regular file without link, of 4 KiB at most. It is
 deleted once handled: the private journal keeps its trace.
 
+**STETHO must make its requests readable** by the shared group, whatever its umask: NURSE treats a
+file it cannot read as invalid, and deletes it. The logs of the container need a size limit, since
+each request writes a line.
+
 ### Checks, in order
 
 The first check that fails gives the `refusal_reason`.
@@ -138,10 +142,22 @@ minutes. A refused request does not count. Nothing is started yet, so only tests
 | `results_dir/<rx_id>.json` | The result, readable by the group. The first answer to an identifier is never replaced. Removed after 7 days, or when there are more than 1000 |
 | `results_dir/_log.json` | The last 100 actions, the most recent first, with 20 invalid requests at most. No identifier can take this name |
 
-Results and the state are written atomically. When the state or the journal cannot be written,
+Results and the state are written atomically, and their folder is synced. Only one NURSE can run on
+a private folder: it holds a lock there, and removes at startup the files left half written. With
+20 000 identifiers to remember, requests are refused with `state_unreadable` until some are
+forgotten. With 1000 files that cannot be handled, nothing more is tried. Old results are removed
+even without any request. When the state or the journal cannot be written,
 or a request cannot be deleted, the file is not tried again until NURSE restarts or the file
 goes away. **Limits:** with an unusable state, `_log.json` is not updated. A stopped NURSE
-leaves the requests waiting. A flood of requests can push older results out.
+leaves the requests waiting.
+
+**Not settled, to be done before any action runs:**
+
+- **A flood erases the trace.** Well-formed requests that are refused are not capped: at full rate
+  they push real entries out of `_log.json` within seconds, and out of the journal within minutes.
+  Older results are pushed out too.
+- **Interrupted request.** If NURSE stops after saving the state and before answering, the request
+  is then answered `duplicate`, as if it had been refused.
 
 ## Decided, not implemented yet
 

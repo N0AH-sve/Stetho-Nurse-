@@ -5,7 +5,7 @@ import stat
 import tempfile
 import threading
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -164,6 +164,8 @@ def test_until_hermes_is_read_every_action_is_refused(tmp_path: Path) -> None:
         request(created_at="2026-02-30T11:59:30Z"),
         request(created_at="2026-01-15T11:59:30+99:00"),
         request(created_at=EPOCH),
+        request(created_at="2026-01-15T11:59:30+00:99"),
+        request(created_at="2026-01-15T11:59:30-00:60"),
     ],
 )
 def test_invalid_request_is_refused_and_logged_without_its_content(
@@ -556,6 +558,9 @@ def test_result_removed_while_pruning_is_ignored(
     monkeypatch.setattr(Path, "lstat", vanished)
 
     records.prune_results(tmp_path, EPOCH)
+    monkeypatch.undo()
+
+    assert [path.name for path in tmp_path.iterdir()] == ["gone.json"]
 
 
 @pytest.mark.parametrize("number", [signal.SIGINT, signal.SIGTERM])
@@ -571,3 +576,148 @@ def test_program_stops_on_a_signal(
 
     assert program.main(["--config", "unused"], stop) == 0
     assert stop.is_set()
+
+
+def old_result(tmp_path: Path, name: str) -> Path:
+    path = tmp_path / "results" / name
+    path.write_text("{}")
+    os.utime(path, (EPOCH - 8 * 86400, EPOCH - 8 * 86400))
+    return path
+
+
+def test_old_results_are_removed_without_any_request(tmp_path: Path) -> None:
+    moment = [NOW]
+    service = reception(tmp_path, allow, clock=lambda: moment[0])
+    first = old_result(tmp_path, "a.json")
+    service.run_once()
+    assert not first.exists()
+
+    second = old_result(tmp_path, "b.json")
+    service.run_once()
+    assert second.exists()  # not at every pass
+    moment[0] = NOW + timedelta(minutes=1)
+    service.run_once()
+
+    assert not second.exists()
+
+
+@pytest.mark.parametrize("step", ["append_journal", "write_result", "write_log", "os.unlink"])
+def test_request_that_cannot_be_finished_is_not_tried_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, step: str
+) -> None:
+    def broken(*_: object, **__: object) -> None:
+        raise PermissionError
+
+    service = reception(tmp_path, allow)
+    path = drop(tmp_path, request())
+    monkeypatch.setattr(f"nurse.reception.{step}", broken)
+
+    passes = [service.run_once(), service.run_once()]
+    monkeypatch.undo()
+
+    assert passes == [1, 0]
+    assert path.exists()
+
+
+def test_failed_save_leaves_no_trace_for_the_next_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    saved = records.save_state
+    calls: list[int] = []
+
+    def fail_once(log_dir: Path, state: State) -> None:
+        calls.append(1)
+        if len(calls) == 1:
+            raise OSError
+        saved(log_dir, state)
+
+    monkeypatch.setattr("nurse.reception.save_state", fail_once)
+    service = reception(tmp_path, allow)
+    drop(tmp_path, request("a"), "a.json")
+    drop(tmp_path, request("b"), "b.json")
+
+    service.run_once()
+
+    state = load_state(tmp_path / "log")
+    assert list(state.handled) == ["b"]
+    assert [entry["result"]["rx_id"] for entry in state.recent] == ["b"]
+
+
+def test_too_many_stuck_files_stop_the_handling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(*_: object) -> None:
+        raise OSError
+
+    monkeypatch.setattr("nurse.reception.save_state", broken)
+    monkeypatch.setattr("nurse.reception.MAX_STUCK", 20)
+    service = reception(tmp_path, allow)
+    for number in range(50):
+        drop(tmp_path, b"", f"r{number:02}.json")
+
+    assert [service.run_once(), service.run_once()] == [20, 0]
+    for number in range(20):
+        (tmp_path / "prescriptions" / f"r{number:02}.json").unlink()
+    assert service.run_once() == 20
+
+
+def test_full_state_refuses_and_stays_loadable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("nurse.reception.MAX_HANDLED", 2)
+    service = reception(tmp_path, allow)
+    for name in ("a", "b", "c"):
+        drop(tmp_path, request(name), f"{name}.json")
+
+    service.run_once()
+
+    assert result(tmp_path, "c")["refusal_reason"] == "state_unreadable"
+    assert list(load_state(tmp_path / "log").handled) == ["a", "b"]
+
+
+def test_largest_state_can_be_loaded_again(tmp_path: Path) -> None:
+    handled = {f"{number:064}": EPOCH for number in range(records.MAX_HANDLED)}
+    entry = {"prescription": {"requested_by": "\U0001f600" * 64}, "result": {"rx_id": "a" * 64}}
+    records.save_state(tmp_path, State(handled, [], [entry] * records.LOG_ENTRIES))
+
+    assert len(load_state(tmp_path).handled) == records.MAX_HANDLED
+
+
+def test_unusable_state_is_reported_once(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    service = reception(tmp_path, allow)
+    (tmp_path / "log" / "state.json").write_bytes(b"{")
+    for name in ("a", "b"):
+        drop(tmp_path, request(name), f"{name}.json")
+        service.run_once()
+
+    assert caplog.text.count("cannot be read") == 1
+
+
+def test_only_one_nurse_may_use_a_private_folder(tmp_path: Path) -> None:
+    first = records.lock_instance(tmp_path)
+    with pytest.raises(BlockingIOError):
+        records.lock_instance(tmp_path)
+    os.close(first)
+
+    os.close(records.lock_instance(tmp_path))
+
+
+def test_program_does_not_start_twice(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    configured = settings(tmp_path)
+    monkeypatch.setattr(program, "load_settings", lambda _: configured)
+    monkeypatch.setattr(program, "load_catalogue", lambda _: ACTIONS)
+    held = records.lock_instance(configured.log_dir)
+
+    try:
+        assert program.main(["--config", "unused"]) == 2
+    finally:
+        os.close(held)
+
+
+def test_half_written_files_are_removed(tmp_path: Path) -> None:
+    for name in (".tmp-abc", "kept.json"):
+        (tmp_path / name).write_text("x")
+
+    records.remove_temporary_files(tmp_path)
+
+    assert [path.name for path in tmp_path.iterdir()] == ["kept.json"]

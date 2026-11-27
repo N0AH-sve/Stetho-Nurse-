@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import os
 import signal
 import threading
 from collections.abc import Sequence
@@ -9,6 +10,7 @@ from pathlib import Path
 from types import FrameType
 
 from nurse.reception import Reception
+from nurse.records import lock_instance, remove_temporary_files
 from nurse.settings import SettingsError, load_catalogue, load_settings
 
 _LOG = logging.getLogger("nurse")
@@ -40,6 +42,11 @@ def main(arguments: Sequence[str] | None = None, stop: threading.Event | None = 
     except SettingsError as error:
         _LOG.error("NURSE cannot start: %s", error)
         return _CANNOT_START
+    try:
+        lock = lock_instance(settings.log_dir)
+    except OSError:
+        _LOG.error("NURSE cannot start: its private folder cannot be locked (already running?)")
+        return _CANNOT_START
     stopping = stop or threading.Event()
 
     def handle(_signal: int, _frame: FrameType | None) -> None:
@@ -48,8 +55,13 @@ def main(arguments: Sequence[str] | None = None, stop: threading.Event | None = 
     if threading.current_thread() is threading.main_thread():
         signal.signal(signal.SIGINT, handle)
         signal.signal(signal.SIGTERM, handle)
-    _LOG.warning("NURSE checks requests but runs no action yet")
-    watch(Reception(settings, actions), stopping)
+    try:
+        for folder in (settings.log_dir, settings.results_dir):
+            remove_temporary_files(folder)
+        _LOG.warning("NURSE checks requests but runs no action yet")
+        watch(Reception(settings, actions), stopping)
+    finally:
+        os.close(lock)
     _LOG.info("NURSE stopped")
     return 0
 

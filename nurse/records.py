@@ -4,6 +4,7 @@ The state and the journal are in `log_dir`, which STETHO cannot reach: replays a
 them. The results directory is read by STETHO.
 """
 
+import fcntl
 import json
 import os
 import tempfile
@@ -18,6 +19,8 @@ HANDLED_SECONDS = int(timedelta(minutes=10).total_seconds())
 LAUNCH_SECONDS = int(timedelta(hours=1).total_seconds())
 RESULT_SECONDS = int(timedelta(days=7).total_seconds())
 MAX_RESULTS = 1000  # a flood of requests must not fill the disk
+# Above what the accepted rate can reach in 10 minutes. It keeps the state loadable.
+MAX_HANDLED = 20_000
 LOG_ENTRIES = 100
 LOG_INVALID_ENTRIES = 20  # a flood of invalid files must not hide the real actions
 JOURNAL_BYTES = 1024 * 1024
@@ -28,6 +31,7 @@ JOURNAL_NAME = "journal.jsonl"
 # A request identifier cannot start with "_": no result can take this name.
 LOG_NAME = "_log.json"
 _TEMPORARY = ".tmp-"
+LOCK_NAME = "lock"
 
 Entry = dict[str, Any]  # `{"prescription": ... | None, "result": ...}`
 
@@ -67,6 +71,9 @@ class State:
                     continue
             kept.append(item)
         self.recent = kept[:LOG_ENTRIES]
+
+    def copy(self) -> "State":
+        return State(dict(self.handled), list(self.launches), list(self.recent))
 
 
 def _is_time(value: object) -> bool:
@@ -121,6 +128,36 @@ def load_state(log_dir: Path) -> State:
     return _parse_state(document)
 
 
+def _sync_folder(folder: Path) -> None:
+    """Without this, a power cut could lose a rename, and with it what must not be replayed."""
+    descriptor = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def lock_instance(log_dir: Path) -> int:
+    """Only one NURSE may use a private folder. The lock lasts while the file stays open.
+
+    Raises `OSError` when it is taken or cannot be taken.
+    """
+    flags = os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW
+    descriptor = os.open(log_dir / LOCK_NAME, flags, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+def remove_temporary_files(folder: Path) -> None:
+    """What a killed NURSE left half written. Only safe with the lock held."""
+    for path in folder.glob(f"{_TEMPORARY}*"):
+        path.unlink(missing_ok=True)
+
+
 def _write_atomically(path: Path, value: object, mode: int) -> None:
     descriptor, name = tempfile.mkstemp(prefix=_TEMPORARY, dir=path.parent)
     temporary = Path(name)
@@ -131,6 +168,7 @@ def _write_atomically(path: Path, value: object, mode: int) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         temporary.replace(path)
+        _sync_folder(path.parent)
     finally:
         temporary.unlink(missing_ok=True)
 
