@@ -14,6 +14,7 @@ Status values:
 | Dependencies | uv, with a committed lockfile | In place | Fast, reproducible installs; can ignore very recent releases |
 | Lint and format | Ruff | In place | One tool for both, includes security and bug rules |
 | Type checking | mypy, strict mode | In place | Catches type errors before runtime |
+| Type information for PyYAML | `types-PyYAML`, development only | In place | PyYAML ships no types, which strict mode needs |
 | Tests | pytest, pytest-cov | In place | De facto standard, with coverage |
 | Pre-commit checks | pre-commit, gitleaks | In place | Secrets and errors are caught before a commit |
 | Dependency audit | pip-audit | In place | Reports known vulnerabilities |
@@ -35,7 +36,7 @@ Status values:
 | Docker access | Proxy filtering by method and path, such as `wollomatic/socket-proxy` | Required | NURSE never mounts the Docker socket |
 | STETHO web server | Starlette and Uvicorn | Approved | Lightweight. FastAPI generates OpenAPI from code, while our contract is written first |
 | Page rendering | Server-side Jinja2 templates with a little plain JavaScript | Approved | No front-end build step |
-| STETHO YAML parser | PyYAML (safe loader only) | Approved | Mature and widely used |
+| STETHO YAML parser | PyYAML (safe loader only) | In place | Mature and widely used |
 | Incident state | A small JSON file, written atomically | Approved | The specification asks for a small file; no database needed |
 | Notification client | `urllib` from the standard library | Approved | One simple request does not justify a dependency |
 

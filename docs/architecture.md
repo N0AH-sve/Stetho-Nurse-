@@ -1,6 +1,6 @@
 # Architecture
 
-> Target architecture. Nothing is implemented yet.
+> Target architecture. Only the loading of the STETHO settings is implemented.
 
 ## Goal
 
