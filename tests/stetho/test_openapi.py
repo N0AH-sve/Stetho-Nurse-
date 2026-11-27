@@ -163,9 +163,9 @@ def names(kind: type) -> set[str]:
 @pytest.mark.parametrize(
     ("schema", "expected"),
     [
-        # `advice` is not in the code yet; `stale` is added when the result is served.
-        ("Sensor", names(SensorResult) | {"advice", "stale"}),
-        ("Item", names(Item) | {"advice"}),
+        # `stale` is added when the result is served.
+        ("Sensor", names(SensorResult) | {"stale"}),
+        ("Item", names(Item)),
         # The register adds the identifier and the times; the message is the translated text.
         (
             "Anomaly",

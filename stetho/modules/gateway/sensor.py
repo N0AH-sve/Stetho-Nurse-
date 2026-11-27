@@ -142,6 +142,9 @@ class GatewaySensor:
             add("last_unclean_stop", text(f"gateway.value.{key}", date=date))
         return tuple(details)
 
+    def _advice(self, key: str | None) -> str | None:
+        return None if key is None else self._translator.text(f"gateway.advice.{key}")
+
     def _actions(self, diagnosis: _Diagnosis) -> tuple[str, ...]:
         # An action names no profile: NURSE would act on the main one.
         return diagnosis.verdict.actions if diagnosis.profile == ROOT_PROFILE else ()
@@ -164,6 +167,7 @@ class GatewaySensor:
         items: tuple[Item, ...] = ()
         details: tuple[Detail, ...] = ()
         actions: tuple[str, ...] = ()
+        advice: str | None = None
         # The sentence of the card comes from the first gateway that has the worst status.
         worst = next((d for d in diagnoses if d.verdict.status is status), None)
         if len(diagnoses) == 1:
@@ -176,15 +180,20 @@ class GatewaySensor:
                     label=self._label(d.profile),
                     status=d.verdict.status,
                     summary=d.summary,
+                    advice=self._advice(d.verdict.advice),
                     details=d.details,
                     actions=self._actions(d),
                 )
                 for d in diagnoses
             )
+        if worst is not None and status is not Status.OK:
+            advice = self._advice(worst.verdict.advice)
         if not diagnoses:
             summary = text("gateway.summary.no_gateway")
+            advice = self._advice("check_profile_list")
         elif worst is None:
             summary = text("gateway.summary.profiles_unchecked")
+            advice = self._advice("check_profiles_access")
         elif len(diagnoses) == 1:
             summary = worst.summary
         elif status is Status.OK:
@@ -201,6 +210,7 @@ class GatewaySensor:
             group=self.group,
             status=status,
             summary=summary,
+            advice=advice,
             checked_at=now,
             details=details,
             items=items,

@@ -17,7 +17,7 @@ import yaml
 from stetho import __main__ as program
 from stetho.config import load_config
 from stetho.logs import SafeFilter, install_error_hooks, setup_logging
-from stetho.web import app as web_app
+from stetho.web.report import ReportStore
 
 ROOT = Path(__file__).parents[2]
 MADE_UP_PHRASE = "made-up-password-long-enough"
@@ -155,7 +155,7 @@ def test_exit_code_tells_whether_the_server_started(
 def test_server_is_hardened(tmp_path: Path) -> None:
     config = load_config(write_config(tmp_path, port=free_port()))
 
-    options = program.build_server(config, web_app.ReportStore()).config
+    options = program.build_server(config, ReportStore()).config
 
     assert (options.ws, options.http, options.lifespan) == ("none", "h11", "on")
     assert not options.proxy_headers
@@ -219,7 +219,7 @@ def test_environment_variables_change_nothing(
     monkeypatch.setenv(name, MARKER)
     config = load_config(write_config(tmp_path, port=free_port()))
 
-    options = program.build_server(config, web_app.ReportStore()).config
+    options = program.build_server(config, ReportStore()).config
 
     assert (options.workers, options.forwarded_allow_ips) == (1, "")
 
@@ -268,7 +268,7 @@ def test_failed_startup_or_shutdown_is_reported_without_its_message(
     if moment == "startup":
         monkeypatch.setattr("stetho.web.app.threading.Thread", failing_thread)
     else:
-        monkeypatch.setattr(web_app, "run_in_threadpool", failing_join)
+        monkeypatch.setattr("stetho.web.app.run_in_threadpool", failing_join)
         # Ask the server to stop as soon as it has started.
         startup = uvicorn.Server.startup
 
@@ -373,7 +373,7 @@ def test_server_giving_up_is_reported(capsys: pytest.CaptureFixture[str]) -> Non
 
     server: Any = GivesUp()
     with socket.socket() as unused:
-        code = program._serve(server, unused, web_app.ReportStore())
+        code = program._serve(server, unused, ReportStore())
 
     assert code == 1
     assert "the web server could not run" in capsys.readouterr().err

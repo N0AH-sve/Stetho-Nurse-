@@ -1,7 +1,7 @@
 # HTTP API
 
-> Status: the contract is written. The server, its protections and `/health` are implemented.
-> The other routes are not served yet.
+> Status: the contract is written. The server, its protections and the reading routes are
+> implemented. The routes of the actions are not served yet.
 
 ## Purpose
 
@@ -16,10 +16,10 @@ Schemas of the files exchanged with NURSE (`Prescription`, `PrescriptionResult`)
 | Route | Role | Served |
 | --- | --- | --- |
 | `GET /health` | The server answers; says nothing about Hermes. No password | Yes |
-| `GET /api/v1/status` | Overall state and every sensor | Planned in this step |
-| `GET /api/v1/sensors/{sensor_id}` | One sensor | Planned in this step |
-| `GET /api/v1/anomalies` | Current anomalies with the time of their reading, filtered by module and code | Planned in this step |
-| `GET /api/v1/openapi.json`, `GET /api/docs` | The contract, and a readable page made from it | Planned in this step |
+| `GET /api/v1/status` | Overall state and every sensor | Yes |
+| `GET /api/v1/sensors/{sensor_id}` | One sensor | Yes |
+| `GET /api/v1/anomalies` | Current anomalies with the time of their reading, filtered by module and code | Yes |
+| `GET /api/v1/openapi.json`, `GET /api/docs` | The contract, and a readable page made from it | Yes |
 | `GET /api/v1/csrf-token` | Token needed to submit a prescription | Later |
 | `POST /api/v1/prescriptions`, `GET /api/v1/prescriptions/{rx_id}` | Ask for an action and follow it | Later |
 | `GET /api/v1/actions` | The last 100 actions of NURSE | Later |
@@ -32,8 +32,8 @@ sessions and known weaknesses will be added with their modules.
 - **Closed objects.** A response, and a file exchanged with NURSE, holds the described fields
   only. A field with nothing to say is `null` or an empty list, not left out. Only a request may
   leave a field out.
-- **Advice.** A sensor and its items have an `advice`: what to do, or `null`. It is not yet in
-  the [result format](probe.md#result-format) of the code.
+- **Advice.** A sensor and its items have an `advice`: what to do, or `null`. It is part of the
+  [result format](probe.md#result-format).
 - **Report.** `summary` is the sentence of the banner. A report is **stale** when no new one has
   arrived for more than the longer of three probe intervals, or the sensor time limit plus one
   interval. `stale` is then true, every status is `unknown`, and every summary says that the data
@@ -51,6 +51,21 @@ sessions and known weaknesses will be added with their modules.
 - **Errors.** `code` is stable; `message` is in the language of the installation.
 - **Versioning.** Routes are under `/api/v1`. A breaking change opens `/api/v2`, and `v1` stays
   served during the migration.
+
+## Reading routes
+
+`stetho/web/routes.py` answers from the latest report of the [probe](probe.md#probe), kept in
+memory: no request runs a sensor. `stetho/web/report.py` shapes the answers.
+
+- **Banner sentence.** "Everything is working" when the status is `ok`. Otherwise, the title and
+  summary of the first sensor that has the overall status. When nothing counts, "Nothing could be
+  checked".
+- **Staleness** is measured with a clock that cannot be set back, from the time a report arrives:
+  changing the date of the server hides nothing. With the example settings, a report is stale
+  after more than 90 s. Titles, labels, times and anomaly codes are kept.
+- **Documentation page.** `/api/docs` is made from the contract when STETHO starts, without
+  script, style or link. Its title and labels are in the language of the installation; the
+  descriptions come from the contract and are in English.
 
 ## Actions
 
@@ -130,8 +145,11 @@ that its routes, protections, errors, enumerations and patterns match the decisi
 refusals included; `test_main.py` covers the startup and the log. The tests use the standard
 library as HTTP client: the test client of Starlette now asks for `httpx2`.
 
-Only the format of the error responses is checked against the contract. Full conformance checks
-will use `openapi-schema-validator`, which is typed, instead of `jsonschema`, which is not.
+`tests/stetho/test_api.py` calls the application with reports and a clock that it controls. It
+checks every JSON response against the contract with `openapi-schema-validator`, formats
+included: before the first pass, with each made-up scenario in the three languages, with every
+field and anomaly code, for stale reports and for errors. It also checks that the routes marked
+as served, and only they, answer.
 
 ## Open points
 

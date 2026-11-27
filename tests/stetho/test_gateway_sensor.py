@@ -205,6 +205,35 @@ def test_card_shows_the_worst_gateway(tmp_path: Path) -> None:
     assert (result.status, result.summary) == (Status.CRITICAL, "work: Hermes is stopped")
 
 
+def test_card_and_items_carry_their_advice(tmp_path: Path) -> None:
+    two_gateways(tmp_path, gateway_state="stopped")
+
+    result = result_of(tmp_path)
+
+    stopped = "Read the Hermes logs, then start the Hermes gateway again."
+    assert [item.advice for item in result.items] == [None, stopped]
+    assert result.advice == stopped
+
+
+@pytest.mark.parametrize(
+    ("served", "profiles", "advice"),
+    [
+        (["work"], ["work"], "Check the list of profiles in the STETHO settings."),
+        ([], "auto", "Check that STETHO can read the profiles folder of Hermes."),
+    ],
+)
+def test_advice_when_something_cannot_be_checked(
+    tmp_path: Path, served: list[str], profiles: object, advice: str
+) -> None:
+    write_state(tmp_path, served_profiles=served)
+    if profiles == "auto":
+        write_state(tmp_path / "profiles" / "not a name")
+
+    result = read(sensor(tmp_path, profiles=profiles)).result
+
+    assert result.advice == advice
+
+
 def test_only_the_main_profile_gets_actions(tmp_path: Path) -> None:
     two_gateways(tmp_path, gateway_state="stopped")
     write_state(tmp_path, gateway_state="stopped")

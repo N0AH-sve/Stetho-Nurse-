@@ -1,8 +1,8 @@
 # Gateway
 
 > Status: the reader, the rules, the texts and the sensor are implemented. The
-> [probe](probe.md#probe) runs the sensor. Its result is not served yet, and the card is to be
-> written.
+> [probe](probe.md#probe) runs the sensor and the [API](api.md#reading-routes) serves its result.
+> The card is to be written.
 
 ## Purpose
 
@@ -114,6 +114,31 @@ Two protections are in the code, so that no change of the rules can lift them:
 
 `RESTART_GATEWAY` may do nothing on a stopped gateway: to be settled with NURSE.
 
+### Advice
+
+Each rule may name an advice, a text of the translation files under `gateway.advice`. It says
+what to do by hand: no button exists yet, and it never relies on one.
+
+| Case | Advice |
+| --- | --- |
+| Deliberate stop | Start Hermes again if the stop is no longer wanted |
+| `stopped` | Read the logs, then start the gateway again |
+| `startup_failed`, watchdog | Read the logs, fix the cause, then start the gateway again |
+| No sign of life, with or without a command, for more than 5 minutes | Check the container and its logs; restart it if needed |
+| Command less than 5 minutes old, `starting`, `draining` | Wait, then read the logs if nothing changes |
+| Late sign of life | Wait, then read the logs and check the load of the server |
+| No usable date | Check the clock of the server and the Hermes version |
+| `degraded` | Check the platform connections and the logs |
+| Unknown state, or unknown value on a healthy gateway | Check the Hermes version |
+| State file missing | Check that Hermes runs and its data folder is mounted |
+| State file unusable | Check the Hermes version and the read access of STETHO |
+| No gateway to check | Check the list of profiles in the settings |
+| Profiles that cannot be listed | Check the read access to the profiles folder |
+| `running` | None |
+
+With `desired_state: stopped`, every advice becomes that of the deliberate stop, so that nobody
+is told to start what the operator stopped. This is in the code, like the protection of actions.
+
 ### Thresholds
 
 An installation changes them in `stetho.yaml`, under `modules.gateway.overrides`:
@@ -127,9 +152,10 @@ The configuration checks the names and values; `load_rules` checks the order and
 `sensor.py` reads every gateway, applies the rules and returns one
 [result](probe.md#result-format) with the anomalies. Its group is "Availability".
 
-- **One gateway.** The card holds its status, sentence, details and actions.
+- **One gateway.** The card holds its status, sentence, advice, details and actions.
 - **Several.** One item per gateway, named after `hermes.profile_labels` or the profile. The
-  card takes the worst status, and the sentence of the first gateway that has it, with its name.
+  card takes the worst status, and the sentence and advice of the first gateway that has it, the
+  sentence with its name.
 - **Actions** are offered for the main profile only: an action names no profile, so NURSE would
   act on the main one.
 - **Unchecked.** If some profiles cannot be listed, or if there is no gateway to check, the card

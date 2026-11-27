@@ -9,34 +9,20 @@ from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
-from starlette.routing import Route
+from starlette.responses import Response
 from starlette.types import ASGIApp
 
 from stetho.config import Config
 from stetho.errors import summarise_error
 from stetho.i18n import Translator
-from stetho.probe import Probe, ProbeReport
-from stetho.web.guard import HEALTH_PATH, Guard, error_response
+from stetho.probe import Probe
+from stetho.web.guard import Guard, error_response
+from stetho.web.report import ReportStore
+from stetho.web.routes import build_routes
 
 _LOG = logging.getLogger(__name__)
 # A stuck sensor must not hold the stop of STETHO, whatever its time limit.
 _MAX_STOP_WAIT_SECONDS: float = 5
-
-
-class ReportStore:
-    """The latest report of the probe. Written by its thread, read by the requests."""
-
-    def __init__(self) -> None:
-        self.latest: ProbeReport | None = None
-        self.failed = False  # the startup or the shutdown of the application failed
-
-    def publish(self, report: ProbeReport) -> None:
-        self.latest = report  # replaced as a whole: a reader never sees half a report
-
-
-async def _health(_request: Request) -> Response:
-    return JSONResponse({"status": "ok"})
 
 
 def create_app(config: Config, translator: Translator, probe: Probe, store: ReportStore) -> ASGIApp:
@@ -86,7 +72,7 @@ def create_app(config: Config, translator: Translator, probe: Probe, store: Repo
         return error_response(translator, 500, "internal_error")
 
     app = Starlette(
-        routes=[Route(HEALTH_PATH, _health)],
+        routes=build_routes(config, translator, store),
         exception_handlers={HTTPException: http_error, Exception: unexpected_error},
         lifespan=lifespan,
     )
