@@ -36,6 +36,8 @@ _MAX_RESULT_BYTES = 64 * 1024
 STATE_NAME = "state.json"
 # Apart from the state, whose size is limited: 8 days of actions would not fit with the rest.
 STARTED_NAME = "started.json"
+# Written once both files above exist: from then on, a missing one was lost, even both.
+MARKER_NAME = "initialized"
 JOURNAL_NAME = "journal.jsonl"  # the refused requests
 ACTIONS_NAME = "actions.jsonl"  # the started actions: refusals never reach this journal
 # A request identifier cannot start with "_": no result can take this name.
@@ -231,7 +233,7 @@ def _parse_started(document: object) -> dict[str, int]:
 def load_started(log_dir: Path) -> frozenset[str]:
     """The identifiers of the actions, read apart from the state.
 
-    A missing file raises `StateError` too: NURSE creates it when it starts, so it was lost.
+    A missing file raises `StateError` too: NURSE creates it at its first start, so it was lost.
     """
     document = _read_json(log_dir, STARTED_NAME)
     if document is _MISSING:
@@ -239,23 +241,46 @@ def load_started(log_dir: Path) -> frozenset[str]:
     return frozenset(_parse_started(document))
 
 
-def create_started(log_dir: Path, state: State) -> None:
-    """Writes the identifiers if the file is not there yet, so that its loss can be told."""
+def _is_initialized(log_dir: Path) -> bool:
+    try:
+        (log_dir / MARKER_NAME).lstat()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        raise StateError from None
+    return True
+
+
+def create_state_files(log_dir: Path, state: State) -> None:
+    """Writes what a first start does not have yet, so that a later loss can be told.
+
+    `state` must come from `load_state`. In this order, so that an interrupted first start can
+    be resumed: the state, the identifiers, and then the marker.
+    """
+    if _read_json(log_dir, STATE_NAME) is _MISSING:
+        save_state(log_dir, state)
     if _read_json(log_dir, STARTED_NAME) is _MISSING:
         _write_atomically(log_dir / STARTED_NAME, state.started, 0o600)
+    if not _is_initialized(log_dir):
+        _write_atomically(log_dir / MARKER_NAME, {}, 0o600)
 
 
 def load_state(log_dir: Path, running: bool = False) -> State:
     """Missing files are a first start. Any other doubt raises `StateError`.
 
-    A `running` NURSE has created the identifiers of the actions: missing, they were lost.
+    Once the marker is written, and for a `running` NURSE, both files were there: a missing one
+    was lost.
     """
+    complete = _is_initialized(log_dir) or running
     document = _read_json(log_dir, STATE_NAME)
-    state = State() if document is _MISSING else _parse_state(document)
     started = _read_json(log_dir, STARTED_NAME)
+    # The state is written first: the identifiers alone are not a first start.
+    if document is _MISSING and (complete or started is not _MISSING):
+        raise StateError
+    state = State() if document is _MISSING else _parse_state(document)
     if started is _MISSING:
         # Losing the identifiers of actions that the state still knows is not a first start.
-        if running or state.pending or state.actions:
+        if complete or state.pending or state.actions:
             raise StateError
     else:
         state.started = _parse_started(started)

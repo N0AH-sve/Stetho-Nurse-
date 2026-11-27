@@ -79,7 +79,8 @@ def drop(tmp_path: Path, content: object, name: str = "rx-1.json") -> Path:
 
 def reception(tmp_path: Path, check: HermesCheck = refuse_unchecked, **kwargs: Any) -> Reception:
     configured = settings(tmp_path)
-    records.create_started(configured.log_dir, State())  # as when NURSE starts
+    # As when NURSE starts.
+    records.create_state_files(configured.log_dir, load_state(configured.log_dir))
     return Reception(configured, ACTIONS, kwargs.get("clock", lambda: NOW), check_hermes=check)
 
 
@@ -400,6 +401,7 @@ def test_what_stetho_reads_can_be_read_by_its_group_only(tmp_path: Path) -> None
         "_log.json": 0o640,
         "state.json": 0o600,
         "started.json": 0o600,
+        "initialized": 0o600,
         "journal.jsonl": 0o600,
     }
 
@@ -902,9 +904,14 @@ def test_program_does_not_start_with_an_unusable_state(
     assert list(configured.results_dir.iterdir()) == []
 
 
-def test_losing_the_identifiers_of_known_actions_is_not_a_first_start(tmp_path: Path) -> None:
+@pytest.mark.parametrize("marker", [True, False])
+def test_losing_the_identifiers_of_known_actions_is_not_a_first_start(
+    tmp_path: Path, marker: bool
+) -> None:
     interrupted(tmp_path)
     (tmp_path / "log" / "started.json").unlink()
+    if not marker:  # the state alone must then tell the loss
+        (tmp_path / "log" / "initialized").unlink()
 
     with pytest.raises(StateError):
         load_state(tmp_path / "log")
@@ -951,6 +958,7 @@ def test_identifiers_of_actions_are_forgotten_after_8_days(
 
 def test_most_actions_that_8_days_can_hold_can_be_loaded_again(tmp_path: Path) -> None:
     started = {f"{number:064}": EPOCH for number in range(100 * 24 * 8)}
+    records.save_state(tmp_path, State())
     (tmp_path / "started.json").write_text(json.dumps(started))
 
     assert len(load_state(tmp_path).started) == 19200
@@ -1234,11 +1242,14 @@ def test_number_too_large_to_be_written_back_makes_the_state_unusable(
             load_state(tmp_path)
 
 
-def test_ended_actions_alone_need_their_identifiers(tmp_path: Path) -> None:
+@pytest.mark.parametrize("marker", [True, False])
+def test_ended_actions_alone_need_their_identifiers(tmp_path: Path, marker: bool) -> None:
     reception(tmp_path)
     state = State()
     started_and_done(tmp_path, state, "a", EPOCH)
     (tmp_path / "log" / "started.json").unlink()
+    if not marker:  # the state alone must then tell the loss
+        (tmp_path / "log" / "initialized").unlink()
 
     with pytest.raises(StateError):
         load_state(tmp_path / "log")
@@ -1248,6 +1259,7 @@ def test_ended_actions_alone_need_their_identifiers(tmp_path: Path) -> None:
 def test_identifier_is_written_before_the_state(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str
 ) -> None:
+    records.create_state_files(tmp_path, State())  # as when NURSE starts
     write = records._write_atomically
 
     def fail_one(path: Path, value: object, mode: int) -> None:
@@ -1353,15 +1365,22 @@ def test_full_state_never_answers_for_an_action(
     assert result(tmp_path, "other")["refusal_reason"] == "state_unreadable"
 
 
-def test_start_creates_the_identifiers_once(tmp_path: Path) -> None:
-    service = reception(tmp_path)
+STATE_FILES = ("state.json", "started.json", "initialized")
+
+
+def first_start(tmp_path: Path) -> Reception:
+    """A NURSE on a private folder that holds nothing yet."""
+    return Reception(settings(tmp_path), ACTIONS, lambda: NOW, check_hermes=allow)
+
+
+def test_first_start_creates_the_state_files_once(tmp_path: Path) -> None:
+    first_start(tmp_path).recover()
     path = tmp_path / "log" / "started.json"
-    path.unlink()
-    service.recover()
+    assert sorted(item.name for item in path.parent.iterdir()) == sorted(STATE_FILES)
     assert path.read_text() == "{}"
     path.write_text(json.dumps({"a": EPOCH}))
 
-    reception(tmp_path).recover()
+    first_start(tmp_path).recover()
 
     assert json.loads(path.read_text()) == {"a": EPOCH}
 
@@ -1380,14 +1399,16 @@ def test_old_action_listed_in_the_state_keeps_its_protection(tmp_path: Path) -> 
     assert not (tmp_path / "results" / "old.json").exists()
 
 
-@pytest.mark.parametrize("both", [True, False])
-def test_identifiers_lost_while_running_are_not_a_first_start(tmp_path: Path, both: bool) -> None:
+@pytest.mark.parametrize("lost", ["identifiers", "both files", "the three files"])
+def test_identifiers_lost_while_running_are_not_a_first_start(tmp_path: Path, lost: str) -> None:
     service = running_with_an_action(tmp_path)
     (tmp_path / "log" / "started.json").unlink()
-    if both:
-        (tmp_path / "log" / "state.json").unlink()
-    else:
+    if lost == "identifiers":
         (tmp_path / "log" / "state.json").write_bytes(with_state())
+    else:
+        (tmp_path / "log" / "state.json").unlink()
+    if lost == "the three files":  # only a running NURSE can still tell
+        (tmp_path / "log" / "initialized").unlink()
     drop(tmp_path, request())
 
     service.run_once()
@@ -1395,6 +1416,8 @@ def test_identifiers_lost_while_running_are_not_a_first_start(tmp_path: Path, bo
     assert list((tmp_path / "results").iterdir()) == []
     assert [line["result"]["refusal_reason"] for line in journal(tmp_path)] == ["state_unreadable"]
     assert not (tmp_path / "log" / "started.json").exists()
+    if lost != "identifiers":
+        assert not (tmp_path / "log" / "state.json").exists()
 
 
 def test_old_pending_action_keeps_its_identifier(tmp_path: Path) -> None:
@@ -1405,3 +1428,83 @@ def test_old_pending_action_keeps_its_identifier(tmp_path: Path) -> None:
         records.start_action(tmp_path / "log", state, request(rx_id), launch, STARTED)
 
     assert "old" in records.load_started(tmp_path / "log")
+
+
+@pytest.mark.parametrize("lost", [["state.json"], ["started.json"], ["state.json", "started.json"]])
+def test_state_file_lost_while_stopped_is_not_a_first_start(
+    tmp_path: Path, lost: list[str]
+) -> None:
+    first_start(tmp_path).recover()
+    for name in lost:
+        (tmp_path / "log" / name).unlink()
+
+    with pytest.raises(StateError):
+        first_start(tmp_path).recover()
+
+    assert not any((tmp_path / "log" / name).exists() for name in lost)
+
+
+def test_identifiers_without_a_state_are_refused_even_without_the_marker(tmp_path: Path) -> None:
+    first_start(tmp_path).recover()
+    (tmp_path / "log" / "state.json").unlink()
+    (tmp_path / "log" / "initialized").unlink()
+
+    with pytest.raises(StateError):
+        first_start(tmp_path).recover()
+
+
+@pytest.mark.parametrize("written", [1, 2])
+def test_interrupted_first_start_is_resumed(tmp_path: Path, written: int) -> None:
+    first_start(tmp_path).recover()
+    for name in STATE_FILES[written:]:
+        (tmp_path / "log" / name).unlink()
+
+    first_start(tmp_path).recover()
+
+    assert all((tmp_path / "log" / name).exists() for name in STATE_FILES)
+
+
+@pytest.mark.parametrize("failing", STATE_FILES)
+def test_first_start_that_fails_can_be_tried_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str
+) -> None:
+    write = records._write_atomically
+
+    def full(path: Path, value: object, mode: int) -> None:
+        if path.name == failing:
+            raise PermissionError
+        write(path, value, mode)
+
+    with monkeypatch.context() as patched:
+        patched.setattr(records, "_write_atomically", full)
+        with pytest.raises(PermissionError):
+            first_start(tmp_path).recover()
+
+    first_start(tmp_path).recover()
+
+    assert all((tmp_path / "log" / name).exists() for name in STATE_FILES)
+
+
+def test_state_lost_while_running_refuses_and_is_not_written_again(tmp_path: Path) -> None:
+    service = running_with_an_action(tmp_path)
+    (tmp_path / "log" / "state.json").unlink()
+    drop(tmp_path, request())
+    drop(tmp_path, request("other"), "other.json")
+
+    service.run_once()
+
+    assert not (tmp_path / "results" / "rx-1.json").exists()
+    assert result(tmp_path, "other")["refusal_reason"] == "state_unreadable"
+    assert not (tmp_path / "log" / "state.json").exists()
+
+
+def test_marker_that_cannot_be_checked_makes_the_state_unusable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def denied(_: Path) -> os.stat_result:
+        raise PermissionError
+
+    monkeypatch.setattr(Path, "lstat", denied)
+
+    with pytest.raises(StateError):
+        load_state(tmp_path)
