@@ -11,7 +11,7 @@ from datetime import datetime
 from enum import StrEnum
 from types import MappingProxyType
 
-from stetho.anomalies import AnomalyCode
+from stetho.anomalies import Anomaly, AnomalyCode
 from stetho.patterns import ACTION_CODE, SENSOR_ID
 
 
@@ -51,6 +51,14 @@ def _check_actions(actions: tuple[str, ...]) -> None:
         raise ValueError("invalid action code")
     if len(set(actions)) != len(actions):
         raise ValueError("repeated action code")
+
+
+@dataclass(frozen=True)
+class SensorOutcome:
+    """What a reading produces: the card, and the anomalies behind it."""
+
+    result: "SensorResult"
+    anomalies: tuple[Anomaly, ...]
 
 
 @dataclass(frozen=True, kw_only=True)

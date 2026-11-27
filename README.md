@@ -6,7 +6,8 @@ itself is neither modified nor upgraded, and no LLM is involved.
 
 > **Status: early development.** The repository contains the development environment, the
 > documentation, and the core of STETHO: settings, translations, statuses, the result format of
-> the sensors and the anomaly model. Nothing can be run yet.
+> the sensors and the anomaly model, the first module, `gateway`, and the probe that runs it.
+> There is no program to start yet.
 
 ## How it works
 

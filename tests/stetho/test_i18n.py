@@ -88,6 +88,14 @@ def test_wrong_request_is_refused(tmp_path: Path, key: str, values: dict[str, st
         translator.text(key, **values)
 
 
+def test_expected_placeholders_are_given(tmp_path: Path) -> None:
+    translator = load_translator(Language.EN, catalogues(tmp_path))
+
+    assert translator.placeholders("greeting.named") == {"name", "count"}
+    with pytest.raises(TranslationError, match=r"unknown text: greeting\.absent"):
+        translator.placeholders("greeting.absent")
+
+
 @pytest.mark.parametrize("chosen", list(Language))
 @pytest.mark.parametrize(
     ("content", "message"),

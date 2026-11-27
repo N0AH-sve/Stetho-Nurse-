@@ -12,8 +12,8 @@ How an installation is described without changing the code.
 `stetho/config.py` reads the file and checks all of it before anything else starts. Nothing
 calls it yet: the STETHO program does not exist.
 
-- **Required.** Every setting of the example must be present. Only `language` may be left out
-  (`en`). No other value is assumed.
+- **Required.** Every setting of the example must be present. Only `language` (`en`) and the
+  [gateway thresholds](gateway.md#thresholds) may be left out. No other value is assumed.
 - **Empty secrets.** `auth.password` and `alerts.discord.webhook_url` must be present but may be
   empty. An empty password means that the reverse proxy handles authentication.
 - **Numbers.** Ports go from 1 to 65535; durations and counts are whole numbers greater than 0.
@@ -53,8 +53,8 @@ that messages do not repeat the content of the file.
 
 The user-facing texts are in `stetho/translations/`: `en.yaml`, `fr.yaml` and `es.yaml`. They
 ship with the code; an installation only chooses the language. `stetho/i18n.py` loads them.
-For now they hold the names of the statuses, two banner texts (healthy, and nothing checked) and
-the [anomaly sentences](anomalies.md#texts).
+For now they hold the names of the statuses, two banner texts (healthy, and nothing checked), the
+[anomaly sentences](anomalies.md#texts), durations and the texts of the `gateway` module.
 
 - **Keys.** Texts can be grouped. A text is asked for by its dotted key, such as
   `banner.all_ok`. Each part of a key uses letters, digits and `_`, and does not start with a
@@ -70,13 +70,13 @@ the [anomaly sentences](anomalies.md#texts).
   `TranslationError`.
 
 To add a text, add the same key to the three files. `tests/stetho/test_i18n.py` covers these
-rules and checks the shipped files. Plural forms and the display of dates and durations are not
-handled yet.
+rules and checks the shipped files. Plural forms are not handled: durations use short units, such
+as `5 min`, in `stetho/durations.py`. Dates are written as `2026-01-15 12:30`.
 
 ## Planned content
 
 - NURSE settings
-- Rule overrides
+- Rule overrides of the other modules
 - Action catalogue (`actions.toml`, see
   [technology choices](../tech-stack.md#4-format-of-the-nurse-action-catalogue))
 
@@ -90,6 +90,7 @@ handled yet.
 - **Strict validation.** STETHO refuses to start on a missing, unknown or invalid setting, so
   that a typing mistake cannot go unnoticed.
 - **Overrides** come with each module. Until a module supports them, `overrides` is refused.
+  So far, only [`gateway`](gateway.md#thresholds) does.
 - **Rate limits** are configurable for each action.
 - **Language** of the page and the alerts is chosen at installation: French, English or
   Spanish. English is the default. No

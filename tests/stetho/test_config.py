@@ -84,6 +84,27 @@ def test_lists_of_names_are_accepted() -> None:
     assert config.modules.kanban.boards == ("release-board",)
 
 
+def test_gateway_thresholds_may_be_changed() -> None:
+    document = changed("modules.gateway.overrides", {"down_after_minutes": 10})
+
+    assert parse_config(document).modules.gateway.overrides == {"down_after_minutes": 10}
+    assert parse_config(example()).modules.gateway.overrides == {}
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ({"down_after_minutes": 0}, "modules.gateway.overrides.down_after_minutes: expected"),
+        ({"down_after_minutes": "5"}, "modules.gateway.overrides.down_after_minutes: expected"),
+        ({"down_after": 5}, "unknown setting: modules.gateway.overrides.down_after"),
+        ([], "modules.gateway.overrides: expected"),
+        (None, "modules.gateway.overrides: expected"),
+    ],
+)
+def test_invalid_gateway_override_is_refused(value: object, message: str) -> None:
+    assert error_of(changed("modules.gateway.overrides", value)).startswith(message)
+
+
 def test_settings_cannot_be_modified() -> None:
     config = parse_config(example())
 

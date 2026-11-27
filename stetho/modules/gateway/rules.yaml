@@ -1,0 +1,103 @@
+# Diagnosis rules of the gateway. They are read in order: the first that matches wins.
+# A threshold can be changed in stetho.yaml, under modules.gateway.overrides.
+#
+# Conditions (all those of a rule must hold):
+#   state, exit_reason    one of the listed values
+#   desired_state         the intent set by the operator
+#   written_by_command    the date was written by a command: it is not a sign of life
+#   older_than            the date is older than the named threshold
+#   no_date: true         there is no usable date
+# `summary` names a text of the translation files, under gateway.summary.
+# No repair is offered when the intent is `stopped` or unknown, whatever the rule says.
+
+thresholds:
+  late_after_minutes: 2
+  down_after_minutes: 5
+  missing_critical_after_minutes: 5
+
+rules:
+  # Stopped cases come first: their date is old by nature.
+  - id: deliberate_stop
+    when: { state: [stopped], desired_state: stopped }
+    status: critical
+    summary: deliberate_stop
+  - id: stopped
+    when: { state: [stopped] }
+    status: critical
+    summary: stopped
+    actions: [RESTART_GATEWAY]
+  - id: startup_failed
+    when: { state: [startup_failed] }
+    status: critical
+    summary: startup_failed
+    actions: [RESTART_GATEWAY]
+  - id: watchdog
+    when: { state: [degraded], exit_reason: [loop_liveness_watchdog, shutdown_watchdog] }
+    status: critical
+    summary: watchdog
+    actions: [RESTART_GATEWAY]
+
+  - id: command_down
+    when: { written_by_command: true, older_than: down_after_minutes }
+    status: critical
+    summary: command_down
+    actions: [RESTART_CONTAINER]
+  - id: command_late
+    when: { written_by_command: true, older_than: late_after_minutes }
+    status: warn
+    summary: command_waiting
+  - id: command_recent
+    when: { written_by_command: true }
+    status: unknown
+    summary: command_waiting
+
+  - id: down
+    when: { older_than: down_after_minutes }
+    status: critical
+    summary: down
+    actions: [RESTART_CONTAINER]
+  - id: late
+    when: { older_than: late_after_minutes }
+    status: warn
+    summary: late
+  - id: no_date
+    when: { no_date: true }
+    status: unknown
+    summary: no_date
+
+  - id: degraded
+    when: { state: [degraded] }
+    status: warn
+    summary: degraded
+    actions: [RESTART_GATEWAY]
+  - id: starting
+    when: { state: [starting] }
+    status: warn
+    summary: starting
+  - id: draining
+    when: { state: [draining] }
+    status: warn
+    summary: draining
+  - id: running
+    when: { state: [running] }
+    status: ok
+    summary: online
+
+  # Must stay last, without any condition.
+  - id: unknown_state
+    when: {}
+    status: warn
+    summary: unknown_state
+
+# When the state file cannot be used.
+without_state:
+  missing:
+    status: unknown
+    summary: missing
+  missing_too_long:
+    status: critical
+    summary: missing_too_long
+    actions: [RESTART_CONTAINER]
+  unusable:
+    status: unknown
+    summary: unusable

@@ -1,7 +1,8 @@
 # Architecture
 
 > Target architecture. Only these parts of the STETHO core are implemented: settings,
-> translations, statuses, the result format of the sensors and the anomaly model.
+> translations, statuses, the result format of the sensors, the anomaly model, the
+> probe and the `gateway` module without its card.
 
 ## Goal
 
