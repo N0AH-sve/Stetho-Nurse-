@@ -1,8 +1,8 @@
 # Errors and anomalies
 
-> Status: the anomaly codes, their model, their grouping and their texts are implemented, as
-> well as the reading retries. The [gateway reader](gateway.md#reader) is the first to raise
-> anomalies; nothing runs it yet. The rest is to be written.
+> Status: the anomaly codes, their model, grouping, texts, reading retries and end are
+> implemented, as well as the log of the [probe](probe.md#probe). So far, only the
+> [`gateway` module](gateway.md) and the probe raise anomalies. No program starts them yet.
 
 ## Purpose
 
@@ -12,8 +12,8 @@ STETHO never hides an error and never shows `ok` when it could not check.
 ## Codes
 
 "Expected behaviour" is what the part that raises the anomaly has to do. **So far, the reading
-retries and the effects on the [`gateway` rules](gateway.md#rules) are implemented. The effects
-on actions are not.**
+retries, the effects on the [`gateway` rules](gateway.md#rules) and those of the sensor codes
+are implemented. The effects on actions are not.**
 
 | Code | When | Expected behaviour | What to do |
 | --- | --- | --- | --- |
@@ -35,7 +35,8 @@ on actions are not.**
 
 `stetho/sources.py` reads a file without ever modifying it. An unreadable file is read again
 after 0.2 s, 0.5 s and 1 s; invalid content is read again once after 1 s. A missing file is
-reported at once. These waits count towards the time limit of a sensor.
+reported at once. These waits count towards the time limit of a sensor, and the probe
+[limits their total](probe.md#isolation-and-time-limit).
 
 ## Model
 
@@ -102,7 +103,8 @@ code: the texts are in the translation files instead, and this page covers all t
 and target. Action and target keep apart the failures of two different actions. An entry has a
 stable identifier, the latest occurrence, the first and last time seen, and a count.
 
-The register is in memory and removes nothing.
+The register is in memory. The [probe](probe.md#anomalies-and-log) removes the anomalies that
+are over. No history is kept.
 
 ## Tests
 
@@ -113,7 +115,6 @@ a summary holds no message and no outside path.
 ## Planned content
 
 - Effects on statuses for the other modules, with their rules
-- Writing internal errors to the log
-- End of an anomaly, history kept for 7 days and saving, with the probe
+- History of the ended anomalies for 7 days, and saving
 - Alerts: when an anomaly lasts for 2 checks, at most once an hour for the same one;
   `proxy_denied` at once

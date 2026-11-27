@@ -17,14 +17,8 @@ from stetho.modules.gateway.reader import (
     read_gateways,
 )
 from stetho.modules.gateway.rules import Verdict, evaluate, load_rules
-from stetho.results import Detail, Item, SensorResult, Status, worst_status
+from stetho.results import Detail, Item, SensorOutcome, SensorResult, Status, worst_status
 from stetho.sources import Sleep
-
-
-@dataclass(frozen=True)
-class SensorOutcome:
-    result: SensorResult
-    anomalies: tuple[Anomaly, ...]
 
 
 @dataclass(frozen=True)
@@ -38,18 +32,27 @@ class _Diagnosis:
 class GatewaySensor:
     """Remembers, until STETHO restarts, the profiles seen and since when a file is missing."""
 
-    def __init__(self, config: Config, translator: Translator, *, sleep: Sleep) -> None:
+    id = MODULE
+
+    def __init__(self, config: Config, translator: Translator) -> None:
         self._hermes = config.hermes
         self._timezone = config.timezone
         self._adapter = load_adapter()
         self._rules = load_rules(config.modules.gateway.overrides)  # may raise `RulesError`
         self._translator = translator
-        self._sleep = sleep
         self._seen: set[str] = set()
         self._missing_since: dict[str, datetime] = {}
 
-    def read(self, now: datetime) -> SensorOutcome:
-        readings, global_anomalies = self._read_all(now)
+    @property
+    def title(self) -> str:
+        return self._translator.text("gateway.title")
+
+    @property
+    def group(self) -> str:
+        return self._translator.text("gateway.group")
+
+    def read(self, now: datetime, sleep: Sleep) -> SensorOutcome:
+        readings, global_anomalies = self._read_all(now, sleep)
         expected = {reading.profile for reading in readings}
         self._missing_since = {
             name: since for name, since in self._missing_since.items() if name in expected
@@ -58,8 +61,10 @@ class GatewaySensor:
         anomalies = (*global_anomalies, *(a for reading in readings for a in reading.anomalies))
         return SensorOutcome(self._result(diagnoses, global_anomalies, anomalies, now), anomalies)
 
-    def _read_all(self, now: datetime) -> tuple[list[GatewayReading], tuple[Anomaly, ...]]:
-        found = read_gateways(self._hermes, adapter=self._adapter, now=now, sleep=self._sleep)
+    def _read_all(
+        self, now: datetime, sleep: Sleep
+    ) -> tuple[list[GatewayReading], tuple[Anomaly, ...]]:
+        found = read_gateways(self._hermes, adapter=self._adapter, now=now, sleep=sleep)
         readings = list(found.gateways)
         if self._hermes.profiles == "auto":
             # A profile seen once stays expected: its file must not disappear unnoticed.
@@ -77,7 +82,7 @@ class GatewaySensor:
                         profile,
                         adapter=self._adapter,
                         now=now,
-                        sleep=self._sleep,
+                        sleep=sleep,
                     )
                 )
             self._seen = {reading.profile for reading in readings}
@@ -192,8 +197,8 @@ class GatewaySensor:
             )
         return SensorResult(
             id=MODULE,
-            title=text("gateway.title"),
-            group=text("gateway.group"),
+            title=self.title,
+            group=self.group,
             status=status,
             summary=summary,
             checked_at=now,

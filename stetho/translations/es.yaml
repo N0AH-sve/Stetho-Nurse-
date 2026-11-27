@@ -78,3 +78,6 @@ gateway:
   exit_reason:
     loop_liveness_watchdog: "Hermes estaba bloqueado"
     shutdown_watchdog: "Hermes se quedó bloqueado al detenerse"
+probe:
+  detail:
+    error: "Error interno"

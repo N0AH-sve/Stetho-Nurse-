@@ -10,8 +10,8 @@ import yaml
 from stetho.anomalies import AnomalyCode
 from stetho.config import Config, Language, parse_config
 from stetho.i18n import load_translator
-from stetho.modules.gateway.sensor import GatewaySensor, SensorOutcome
-from stetho.results import Detail, SensorResult, Status
+from stetho.modules.gateway.sensor import GatewaySensor
+from stetho.results import Detail, SensorOutcome, SensorResult, Status
 
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "hermes-0.21"
 EXAMPLE = Path(__file__).parents[2] / "config" / "stetho.example.yaml"
@@ -28,9 +28,15 @@ def config(data_dir: Path, profiles: object = "auto", **overrides: int) -> Confi
 def sensor(
     data_dir: Path, language: Language = Language.EN, profiles: object = "auto"
 ) -> GatewaySensor:
-    return GatewaySensor(
-        config(data_dir, profiles), load_translator(language), sleep=lambda _: None
-    )
+    return GatewaySensor(config(data_dir, profiles), load_translator(language))
+
+
+def no_sleep(_: float) -> None:
+    pass
+
+
+def read(gateway: GatewaySensor, now: datetime = NOW) -> SensorOutcome:
+    return gateway.read(now, no_sleep)
 
 
 def write_state(home: Path, **changes: Any) -> None:
@@ -42,7 +48,7 @@ def write_state(home: Path, **changes: Any) -> None:
 
 
 def result_of(data_dir: Path, language: Language = Language.EN) -> SensorResult:
-    return sensor(data_dir, language).read(NOW).result
+    return read(sensor(data_dir, language)).result
 
 
 def labelled(details: tuple[Detail, ...]) -> dict[str, str]:
@@ -154,7 +160,7 @@ def test_missing_file_becomes_critical_after_five_minutes(tmp_path: Path) -> Non
     gateway = sensor(tmp_path)
     times = [NOW, NOW + timedelta(minutes=5), NOW + timedelta(minutes=6)]
 
-    results = [gateway.read(moment).result for moment in times]
+    results = [read(gateway, moment).result for moment in times]
 
     assert [r.status for r in results] == [Status.UNKNOWN, Status.UNKNOWN, Status.CRITICAL]
     assert results[-1].summary == "No sign of life from Hermes for 6 min"
@@ -163,12 +169,12 @@ def test_missing_file_becomes_critical_after_five_minutes(tmp_path: Path) -> Non
 
 def test_delay_starts_again_when_the_file_came_back(tmp_path: Path) -> None:
     gateway = sensor(tmp_path)
-    gateway.read(NOW)
+    read(gateway, NOW)
     write_state(tmp_path)
-    gateway.read(NOW + timedelta(minutes=1))
+    read(gateway, NOW + timedelta(minutes=1))
     (tmp_path / "gateway_state.json").unlink()
 
-    result = gateway.read(NOW + timedelta(minutes=10)).result
+    result = read(gateway, NOW + timedelta(minutes=10)).result
 
     assert result.status is Status.UNKNOWN
 
@@ -212,7 +218,7 @@ def test_only_the_main_profile_gets_actions(tmp_path: Path) -> None:
 def test_single_secondary_gateway_gets_no_action(tmp_path: Path) -> None:
     two_gateways(tmp_path, gateway_state="stopped")
 
-    result = sensor(tmp_path, profiles=["work"]).read(NOW).result
+    result = read(sensor(tmp_path, profiles=["work"])).result
 
     assert (result.status, result.actions) == (Status.CRITICAL, ())
 
@@ -220,12 +226,12 @@ def test_single_secondary_gateway_gets_no_action(tmp_path: Path) -> None:
 def test_profile_that_disappears_stays_expected(tmp_path: Path) -> None:
     two_gateways(tmp_path)
     gateway = sensor(tmp_path)
-    gateway.read(NOW)
+    read(gateway, NOW)
     shutil.rmtree(tmp_path / "profiles" / "work")
 
-    first = gateway.read(NOW + timedelta(seconds=30)).result
+    first = read(gateway, NOW + timedelta(seconds=30)).result
     write_state(tmp_path, updated_at=(NOW + timedelta(minutes=6)).isoformat())
-    later = gateway.read(NOW + timedelta(minutes=6)).result
+    later = read(gateway, NOW + timedelta(minutes=6)).result
 
     assert (first.status, later.status) == (Status.UNKNOWN, Status.CRITICAL)
     assert [item.id for item in later.items] == ["default", "work"]
@@ -234,11 +240,11 @@ def test_profile_that_disappears_stays_expected(tmp_path: Path) -> None:
 def test_profile_taken_over_by_the_main_gateway_is_dropped(tmp_path: Path) -> None:
     two_gateways(tmp_path)
     gateway = sensor(tmp_path)
-    gateway.read(NOW)
+    read(gateway, NOW)
     shutil.rmtree(tmp_path / "profiles" / "work")
     write_state(tmp_path, served_profiles=["work"])
 
-    result = gateway.read(NOW).result
+    result = read(gateway, NOW).result
 
     assert (result.status, result.items) == (Status.OK, ())
 
@@ -266,7 +272,7 @@ def test_problem_of_a_gateway_wins_over_unchecked_profiles(tmp_path: Path) -> No
 def test_nothing_to_check_is_unknown(tmp_path: Path) -> None:
     write_state(tmp_path, served_profiles=["work"])
 
-    result = sensor(tmp_path, profiles=["work"]).read(NOW).result
+    result = read(sensor(tmp_path, profiles=["work"])).result
 
     assert (result.status, result.summary) == (Status.UNKNOWN, "There is no gateway to check")
 
@@ -274,7 +280,7 @@ def test_nothing_to_check_is_unknown(tmp_path: Path) -> None:
 def test_all_anomalies_are_returned_and_their_codes_listed_once(tmp_path: Path) -> None:
     two_gateways(tmp_path, new_a=1, new_b=2)
 
-    outcome: SensorOutcome = sensor(tmp_path).read(NOW)
+    outcome = read(sensor(tmp_path))
 
     assert [anomaly.field for anomaly in outcome.anomalies] == ["new_a", "new_b"]
     assert outcome.result.anomalies == (AnomalyCode.SCHEMA_CHANGED,)

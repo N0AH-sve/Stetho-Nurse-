@@ -78,3 +78,6 @@ gateway:
   exit_reason:
     loop_liveness_watchdog: "Hermes was frozen"
     shutdown_watchdog: "Hermes was stuck while stopping"
+probe:
+  detail:
+    error: "Internal error"

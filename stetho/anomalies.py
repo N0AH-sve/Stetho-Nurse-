@@ -190,7 +190,7 @@ class AnomalyEntry:
 
 
 class AnomalyRegister:
-    """Groups identical anomalies. Kept in memory: nothing is removed or saved yet."""
+    """Groups identical anomalies. Kept in memory: nothing is saved yet."""
 
     def __init__(self) -> None:
         self._entries: dict[tuple[str | None, ...], AnomalyEntry] = {}
@@ -206,6 +206,12 @@ class AnomalyRegister:
             entry = replace(known, anomaly=anomaly, last_seen=seen_at, count=known.count + 1)
         self._entries[anomaly.key] = entry
         return entry
+
+    def get(self, key: tuple[str | None, ...]) -> AnomalyEntry | None:
+        return self._entries.get(key)
+
+    def remove(self, key: tuple[str | None, ...]) -> None:
+        del self._entries[key]
 
     def entries(self) -> tuple[AnomalyEntry, ...]:
         """In the order in which they were first recorded."""
