@@ -1,0 +1,32 @@
+# What Hermes Agent v0.21 is expected to write. See docs/hermes/gateway.md.
+# A new value in a later version is added here, without changing the code.
+
+# Without them, the state file cannot be used.
+required_fields: [gateway_state, updated_at]
+
+# Any other top-level field is reported, so that this file gets updated.
+known_fields:
+  - active_agents
+  - active_work
+  - argv
+  - code_sha
+  - code_version
+  - desired_state
+  - exit_reason
+  - gateway_state
+  - hermes_home
+  - kind
+  - multiplex_standalone_reason
+  - pid
+  - platforms
+  - restart_requested
+  - served_profiles
+  - session_store
+  - start_time
+  - updated_at
+
+gateway_states: [starting, running, degraded, draining, stopped, startup_failed]
+desired_states: [running, stopped]
+
+# `exit_reason` is free text: only these values leave the reader.
+known_exit_reasons: [loop_liveness_watchdog, shutdown_watchdog]

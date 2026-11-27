@@ -60,6 +60,7 @@ sub-items. Its `id` is not empty and is unique within its sensor.
 
 ## Decisions
 
-- **Layout.** One folder per domain in `modules/`; there is no separate `sensors/` folder.
+- **Layout.** One folder per domain in `stetho/modules/`; there is no separate `sensors/` folder.
+  So far, `gateway` has its [reader](gateway.md#reader) and its adapters.
 - **Crashing sensor.** It reports `unknown`.
 - **`details` format.** A list of label and value pairs.

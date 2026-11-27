@@ -13,11 +13,10 @@ from types import MappingProxyType
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from stetho.patterns import PROFILE_NAME
 from stetho.yamlfile import YamlFileError, load_yaml
 
 _PRINTABLE_KEY = re.compile(r"[A-Za-z0-9_-]{1,40}")
-# Profile and board names become folder names: no separator, no leading dot or dash.
-_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 _MAX_PORT = 65535
 
 
@@ -216,7 +215,7 @@ class _Section:
         if (
             not isinstance(value, list)
             or not value
-            or not all(isinstance(item, str) and _NAME.fullmatch(item) for item in value)
+            or not all(isinstance(item, str) and PROFILE_NAME.fullmatch(item) for item in value)
             or len(set(value)) != len(value)
         ):
             raise ConfigError(
@@ -238,7 +237,7 @@ def _profile_labels(hermes: _Section) -> Mapping[str, str]:
     section = hermes.section("profile_labels")
     labels: dict[str, str] = {}
     for name in section.unread_keys():
-        if not isinstance(name, str) or not _NAME.fullmatch(name):
+        if not isinstance(name, str) or not PROFILE_NAME.fullmatch(name):
             raise ConfigError(f"{section.name}: invalid profile name")
         labels[name] = section.text(name)
     return MappingProxyType(labels)

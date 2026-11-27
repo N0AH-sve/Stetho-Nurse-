@@ -1,7 +1,8 @@
 # Errors and anomalies
 
-> Status: the anomaly codes, their model, their grouping and their texts are implemented.
-> Nothing raises an anomaly yet. The rest is to be written.
+> Status: the anomaly codes, their model, their grouping and their texts are implemented, as
+> well as the reading retries. The [gateway reader](gateway.md#reader) is the first to raise
+> anomalies; nothing runs it yet. The rest is to be written.
 
 ## Purpose
 
@@ -10,8 +11,8 @@ STETHO never hides an error and never shows `ok` when it could not check.
 
 ## Codes
 
-"Expected behaviour" is what the part that raises the anomaly will have to do. **None of it is
-implemented yet.**
+"Expected behaviour" is what the part that raises the anomaly has to do. **Only the reading
+retries are implemented: the effects on statuses and on actions are not.**
 
 | Code | When | Expected behaviour | What to do |
 | --- | --- | --- | --- |
@@ -28,6 +29,12 @@ implemented yet.**
 | `action_unexpected_output` | Good exit code, but unexpected output | Result `unexpected`, alert | Read the result of the action |
 | `action_unverified` | The command succeeded, but its effect is not visible | Result `unverified`, alert, automatic actions suspended for 1 hour | Check the state in Hermes by hand |
 | `proxy_denied` | The Docker proxy refuses a call from NURSE | Result `refused`, `critical`, alert at once | Check now: the configuration is wrong or an unlisted call was tried |
+
+## Reading retries
+
+`stetho/sources.py` reads a file without ever modifying it. An unreadable file is read again
+after 0.2 s, 0.5 s and 1 s; invalid content is read again once after 1 s. A missing file is
+reported at once. These waits count towards the time limit of a sensor.
 
 ## Model
 
@@ -104,7 +111,7 @@ a summary holds no message and no outside path.
 
 ## Planned content
 
-- Retries and effects on statuses, with the readers and the probe
+- Effects on statuses, with the rules and the probe
 - Writing internal errors to the log
 - End of an anomaly, history kept for 7 days and saving, with the probe
 - Alerts: when an anomaly lasts for 2 checks, at most once an hour for the same one;
