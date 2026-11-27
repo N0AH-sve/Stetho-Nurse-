@@ -1,0 +1,65 @@
+# Catalogue of the actions NURSE may run. Copy to config/actions.toml (never committed).
+# Only the administrator edits it: STETHO can neither read nor change it. Protect and review it
+# like code. Changes apply after NURSE restarts.
+#
+# type             "command" (a `hermes` command, never a shell) or "restart_container"
+# argv             for a command: a list; "{target}" is a whole argument
+# user             for a command: the Hermes user, never root
+# target           what the action applies to: pattern, and where it must exist
+# verify           how the effect is proven: gateway_restarted, job_ran, job_paused or
+#                  task_reclaimed
+# auto             may run automatically (allowed for RESTART_GATEWAY only)
+# rate_limit       runs per hour; by default 2 automatic and 5 manual
+# timeout_seconds  for the action; verify_timeout_seconds for the proof of its effect
+
+[RESTART_GATEWAY]
+label = { en = "Restart the gateway", fr = "Redémarrer le gateway", es = "Reiniciar el gateway" }
+type = "command"
+argv = ["hermes", "gateway", "restart"]
+user = "hermes"
+verify = "gateway_restarted"
+auto = true  # nothing runs automatically unless auto_actions is also true in nurse.toml
+timeout_seconds = 120
+verify_timeout_seconds = 180
+
+[RESTART_CONTAINER]
+label = { en = "Restart the Hermes container", fr = "Redémarrer le conteneur Hermes", es = "Reiniciar el contenedor de Hermes" }
+type = "restart_container"
+verify = "gateway_restarted"
+auto = false
+timeout_seconds = 180
+verify_timeout_seconds = 180
+
+[RERUN_JOB]
+label = { en = "Run the job again", fr = "Relancer la tâche", es = "Volver a ejecutar la tarea" }
+type = "command"
+argv = ["hermes", "cron", "run", "{target}"]
+user = "hermes"
+target = { pattern = "[a-z0-9]{6,32}", must_exist_in = "cron_job" }
+verify = "job_ran"
+auto = false
+# The command lasts as long as the job. After this delay it may still run: never retried.
+timeout_seconds = 1800
+verify_timeout_seconds = 60
+
+[PAUSE_JOB]
+label = { en = "Pause the job", fr = "Mettre la tâche en pause", es = "Pausar la tarea" }
+type = "command"
+argv = ["hermes", "cron", "pause", "{target}"]
+user = "hermes"
+target = { pattern = "[a-z0-9]{6,32}", must_exist_in = "cron_job" }
+verify = "job_paused"
+auto = false
+timeout_seconds = 30
+verify_timeout_seconds = 60
+
+[UNBLOCK_KANBAN_TASK]
+label = { en = "Reclaim the task", fr = "Reprendre la tâche", es = "Recuperar la tarea" }
+type = "command"
+argv = ["hermes", "kanban", "reclaim", "{target}", "--reason", "NURSE: no heartbeat"]
+user = "hermes"
+target = { pattern = "t_[0-9a-f]{8}", must_exist_in = "kanban_task" }
+verify = "task_reclaimed"
+auto = false
+timeout_seconds = 30
+verify_timeout_seconds = 60
