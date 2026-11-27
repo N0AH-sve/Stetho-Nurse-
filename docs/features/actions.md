@@ -73,7 +73,8 @@ safe, since a `hermes` command can do harm. Protect the file and review it like 
 1 to 64 letters, digits or `_`, the form of the API, so that it cannot be an option or a path.
 Both must match the whole value. **Limit:** an expression that takes very long to evaluate is
 not detected.
-A `user` is checked as written: another name for the identifier 0 in the container would not be
+
+**Limit:** a `user` is checked as written: another name for the identifier 0 in the container would not be
 seen.
 
 ## Decisions

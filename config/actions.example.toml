@@ -3,13 +3,15 @@
 # like code. Changes apply after NURSE restarts.
 #
 # type             "command" (a `hermes` command, never a shell) or "restart_container"
-# argv             for a command: a list; "{target}" is a whole argument
+# argv             for a command: a list; "{target}" is a whole argument, never the second one
 # user             for a command: the Hermes user, never root
-# target           what the action applies to: pattern, and where it must exist
+# target           what the action applies to: pattern, and where it must exist. NURSE also
+#                  limits every target to 1 to 64 letters, digits or "_"
 # verify           how the effect is proven: gateway_restarted, job_ran, job_paused or
 #                  task_reclaimed
-# auto             may run automatically (allowed for RESTART_GATEWAY only)
-# rate_limit       runs per hour; by default 2 automatic and 5 manual
+# auto             may run automatically: RESTART_GATEWAY only, and only with exactly
+#                  "hermes gateway restart", verified by gateway_restarted, without target
+# rate_limit       runs per hour, with both keys if given; by default 2 automatic and 5 manual
 # timeout_seconds  for the action; verify_timeout_seconds for the proof of its effect
 
 [RESTART_GATEWAY]
