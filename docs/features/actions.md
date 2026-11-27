@@ -134,8 +134,8 @@ minutes. A refused request does not count. Nothing is started yet, so only tests
 
 ### Checks in Hermes
 
-`nurse/hermes.py` reads the main profile and the default Kanban board, without writing and
-without selecting any content. What cannot be read or understood gives `state_unreadable`.
+`nurse/hermes.py` reads the main profile and the default Kanban board, without selecting any
+content. It never asks to write. What cannot be read or understood gives `state_unreadable`.
 
 | Action verified by | Allowed when | Otherwise |
 | --- | --- | --- |
@@ -148,11 +148,20 @@ without selecting any content. What cannot be read or understood gives `state_un
 - Each action reads what it depends on: the gateway state is not read for a job or a task.
 - The age and duration of a task are measured on its **current attempt**, so that the start or
   the heartbeat of an earlier one cannot make a new attempt look stuck.
-- No link below the data folder is followed. A JSON file is limited to 4 MiB and a query to 2 s.
+- No link below the data folder is followed, side files of a database included, and a broken link
+  is not an absence. A JSON file is limited to 4 MiB and a query to 2 s.
+- Without `kanban/current`, the active board is the default one.
+- A database with a `-journal` file is refused: it may hold changes that were never committed.
+  **Limit:** in a journal mode that keeps this file, the actions that read it are always refused.
 - A database without `-wal` or `-shm` is opened as `immutable`, and the reading is dropped if
   the file changes meanwhile; otherwise it is opened with `mode=ro`.
 
-**Limits.** Nothing was tried on a real installation, or on a read-only mount. Hermes may change
+**To settle before deployment:** with `mode=ro` on a folder it may write, SQLite can create or
+change the `-shm` and `-wal` files. Only a read-only mount of the data, not yet tried, would
+prevent it.
+
+**Limits.** Nothing was tried on a real installation. The environment variables of Hermes that
+move the boards are not seen. Hermes may change
 between the check and the action, the active board included. A claim or an execution left
 unfinished after a crash blocks a rerun until Hermes clears it.
 

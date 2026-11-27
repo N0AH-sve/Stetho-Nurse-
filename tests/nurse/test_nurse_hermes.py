@@ -340,3 +340,52 @@ def test_program_checks_requests_against_hermes(
 
     result = json.loads((folders["results"] / "rx-1.json").read_text())
     assert result["refusal_reason"] == "execution_disabled"
+
+
+def test_uncommitted_changes_are_never_trusted(home: Path) -> None:
+    database = home / "kanban.db"
+    with closing(sqlite3.connect(database)) as writer:
+        writer.execute("PRAGMA journal_mode=DELETE")
+        writer.execute("PRAGMA cache_size=1")
+        writer.execute("UPDATE tasks SET last_heartbeat_at = NULL")
+
+        assert (home / "kanban.db-journal").exists()
+        assert check(home, "UNBLOCK_KANBAN_TASK", TASK) == "state_unreadable"
+        writer.rollback()
+
+
+@pytest.mark.parametrize("suffix", ["-journal", "-wal", "-shm"])
+@pytest.mark.parametrize("kind", ["broken link", "folder"])
+def test_unexpected_side_file_refuses(home: Path, suffix: str, kind: str) -> None:
+    side = home / f"kanban.db{suffix}"
+    if kind == "folder":
+        side.mkdir()
+    else:
+        side.symlink_to(home / "absent")
+
+    assert check(home, "UNBLOCK_KANBAN_TASK", TASK) == "state_unreadable"
+
+
+@pytest.mark.parametrize("name", ["kanban", "kanban/current"])
+def test_broken_link_to_the_board_is_not_the_default_board(home: Path, name: str) -> None:
+    link = home / name
+    link.parent.mkdir(exist_ok=True)
+    link.symlink_to(home / "absent")
+
+    assert check(home, "UNBLOCK_KANBAN_TASK", TASK) == "state_unreadable"
+
+
+@pytest.mark.parametrize("suffix", ["-wal", "-journal"])
+def test_writer_arriving_during_an_idle_read_is_noticed(
+    home: Path, monkeypatch: pytest.MonkeyPatch, suffix: str
+) -> None:
+    identity = hermes._identity
+
+    def arrive(path: Path) -> tuple[int, int, int]:
+        found = identity(path)
+        path.with_name(path.name + suffix).touch()
+        return found
+
+    monkeypatch.setattr(hermes, "_identity", arrive)
+
+    assert check(home, "UNBLOCK_KANBAN_TASK", TASK) == "state_unreadable"

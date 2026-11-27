@@ -5,6 +5,7 @@ understood refuses the action. No content is selected: no name, prompt, title or
 """
 
 import json
+import os
 import sqlite3
 import stat
 import time
@@ -28,28 +29,44 @@ class _UnreadableError(Exception):
     """Something cannot be read or understood. It carries no detail on purpose."""
 
 
+def _kind(path: Path) -> int | None:
+    """The type of what is there, without following a link, or `None` when nothing is."""
+    try:
+        return stat.S_IFMT(path.lstat().st_mode)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        raise _UnreadableError from None
+
+
 def _file(data_dir: Path, name: str) -> Path | None:
     """A regular file of the data folder, reached without any link below it, or `None`."""
     try:
-        root = data_dir.resolve(strict=True)
-        path = root / name
-        found = path.lstat()
-        if not stat.S_ISREG(found.st_mode) or path.resolve(strict=True) != path:
-            raise _UnreadableError
-    except FileNotFoundError:
-        return None
+        path = data_dir.resolve(strict=True)
     except (OSError, RuntimeError):
         raise _UnreadableError from None
+    parts = Path(name).parts
+    for number, part in enumerate(parts, start=1):
+        path = path / part
+        kind = _kind(path)
+        if kind is None:
+            return None  # really absent: everything above is a real folder
+        if kind != (stat.S_IFREG if number == len(parts) else stat.S_IFDIR):
+            raise _UnreadableError  # a link, even a broken one, is not an absence
     return path
 
 
 def _read(path: Path, limit: int) -> bytes:
+    # The file may have been swapped since it was checked: no link, and no wait on a pipe.
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_NOCTTY | os.O_CLOEXEC
     try:
-        with path.open("rb") as stream:
+        with os.fdopen(os.open(path, flags), "rb") as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                raise _UnreadableError
             content = stream.read(limit + 1)
     except OSError:
         raise _UnreadableError from None
-    if len(content) > limit:
+    if content is None or len(content) > limit:
         raise _UnreadableError
     return content
 
@@ -72,6 +89,20 @@ def _identity(path: Path) -> tuple[int, int, int]:
     return found.st_ino, found.st_size, found.st_mtime_ns
 
 
+def _in_use(path: Path) -> bool:
+    """Whether a database has WAL side files. A rollback journal refuses the reading."""
+    found = {}
+    for suffix in ("-journal", "-wal", "-shm"):
+        kind = _kind(path.with_name(path.name + suffix))
+        if kind not in (None, stat.S_IFREG):
+            raise _UnreadableError
+        found[suffix] = kind is not None
+    # With a journal, the database may hold changes that were never committed.
+    if found["-journal"]:
+        raise _UnreadableError
+    return found["-wal"] or found["-shm"]
+
+
 def _select(
     data_dir: Path, name: str, query: str, values: Sequence[str]
 ) -> list[tuple[object, ...]]:
@@ -79,18 +110,18 @@ def _select(
     path = _file(data_dir, name)
     if path is None:
         raise _UnreadableError
-    side_files = [path.with_name(path.name + suffix) for suffix in ("-wal", "-shm")]
     try:
         # `immutable` only for an idle database: `mode=ro` fails on some of them.
-        idle = not any(side.exists() for side in side_files)
+        idle = not _in_use(path)
         before = _identity(path)
         uri = f"{path.as_uri()}?mode=ro" + ("&immutable=1" if idle else "")
         deadline = time.monotonic() + _QUERY_SECONDS
         with closing(sqlite3.connect(uri, uri=True, timeout=_QUERY_SECONDS)) as connection:
             connection.set_progress_handler(lambda: time.monotonic() > deadline, 1000)
             rows = connection.execute(query, values).fetchmany(2)
-        # A writer that came during an idle read may have made it wrong.
-        if idle and (_identity(path) != before or any(side.exists() for side in side_files)):
+        # A writer that came during the read may have made it wrong. Checked for a journal too.
+        used = _in_use(path)
+        if idle and (used or _identity(path) != before):
             raise _UnreadableError
     except (OSError, sqlite3.Error):
         raise _UnreadableError from None
