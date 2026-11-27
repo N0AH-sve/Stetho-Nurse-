@@ -1,0 +1,9 @@
+# User-facing texts in Spanish. The three files hold the same keys and the same {placeholders}.
+status:
+  ok: "Correcto"
+  warn: "Atención"
+  critical: "Crítico"
+  info: "Información"
+  unknown: "Desconocido"
+banner:
+  all_ok: "Todo funciona"

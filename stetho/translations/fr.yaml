@@ -1,0 +1,9 @@
+# User-facing texts in French. The three files hold the same keys and the same {placeholders}.
+status:
+  ok: "OK"
+  warn: "Attention"
+  critical: "Critique"
+  info: "Information"
+  unknown: "Inconnu"
+banner:
+  all_ok: "Tout fonctionne"
