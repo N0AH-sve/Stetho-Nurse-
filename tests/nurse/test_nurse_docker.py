@@ -1,12 +1,22 @@
+import io
 import json
 import socket
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import suppress
+from types import SimpleNamespace
 
 import pytest
 
-from nurse.docker import OUTPUT_BYTES, Docker, DockerError, ExecState, Failure, Output
+from nurse.docker import (
+    OUTPUT_BYTES,
+    Docker,
+    DockerError,
+    ExecState,
+    Failure,
+    Output,
+    _read_output,
+)
 
 EXEC_ID = "a" * 64
 Reply = Callable[[socket.socket], None]
@@ -35,17 +45,27 @@ class FakeDocker:
     def _read(self, client: socket.socket) -> None:
         received = b""
         while b"\r\n\r\n" not in received:
-            received += client.recv(4096)
+            received += self._receive(client)
         head, _, body = received.partition(b"\r\n\r\n")
         first, *lines = head.decode().split("\r\n")
         headers = dict(line.split(": ", 1) for line in lines)
         while len(body) < int(headers.get("Content-Length", 0)):
-            body += client.recv(4096)
+            body += self._receive(client)
         self.requests.append((first, headers, body))
+
+    @staticmethod
+    def _receive(client: socket.socket) -> bytes:
+        data = client.recv(4096)
+        if not data:
+            raise ConnectionError
+        return data
 
     def close(self) -> None:
         self.release.set()
+        with suppress(OSError):
+            self._server.shutdown(socket.SHUT_RDWR)  # wakes the waiting server
         self._server.close()
+        self._thread.join(5)
 
     def client(self) -> Docker:
         return Docker(f"http://127.0.0.1:{self.port}", "hermes")
@@ -108,7 +128,14 @@ def test_identifier_that_could_change_a_path_is_refused(fake: FakeDocker, value:
     assert error.failure is Failure.ANSWER
 
 
-@pytest.mark.parametrize("body", [b"{", b"[" * 100_000, b" " * (64 * 1024 + 1)])
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"{",
+        b"[" * 60_000,  # under the size limit, and too deep
+        json.dumps({"Running": False, "ExitCode": 0, "other": "x" * 70_000}).encode(),
+    ],
+)
 def test_unreadable_or_too_long_answer_is_refused(fake: FakeDocker, body: bytes) -> None:
     fake.reply = answer(200, body)
 
@@ -142,14 +169,29 @@ def test_frames_cut_anywhere_are_put_together(fake: FakeDocker) -> None:
     assert fake.client().run_exec(EXEC_ID, 5) == Output(b"first\n", b"second\n", False, True)
 
 
-def test_only_the_end_of_a_long_output_is_kept(fake: FakeDocker) -> None:
-    fake.reply = answer(200, frame(1, b"x" * (3 * OUTPUT_BYTES)) + frame(1, b"the end\n"))
+def test_only_the_last_whole_lines_of_a_long_output_are_kept(fake: FakeDocker) -> None:
+    long_name = b"x" * (3 * OUTPUT_BYTES) + b"Reclaimed t_00000000\n"
+    fake.reply = answer(200, frame(1, long_name) + frame(1, b"the end\n") + frame(2, b"short"))
 
     output = fake.client().run_exec(EXEC_ID, 5)
 
-    assert output.truncated
-    assert len(output.stdout) == OUTPUT_BYTES
-    assert output.stdout.endswith(b"xxxthe end\n")
+    # What is left of the long line must not pass for a whole one.
+    assert output == Output(b"the end\n", b"short", True, True)
+
+
+def test_long_output_without_any_line_end_is_dropped(fake: FakeDocker) -> None:
+    fake.reply = answer(200, frame(1, b"x" * (2 * OUTPUT_BYTES)))
+
+    assert fake.client().run_exec(EXEC_ID, 5) == Output(b"", b"", True, True)
+
+
+def test_frames_read_one_byte_at_a_time_are_put_together() -> None:
+    body = io.BytesIO(frame(1, b"first\n") + frame(2, b"second\n"))
+    response = SimpleNamespace(read1=lambda _: body.read(1), length=None)
+
+    output = _read_output(response)  # type: ignore[arg-type]  # only these two are used
+
+    assert output == Output(b"first\n", b"second\n", False, True)
 
 
 @pytest.mark.parametrize("cut", [3, 10])
@@ -271,3 +313,100 @@ def test_answer_that_comes_drop_by_drop_cannot_last_for_ever(fake: FakeDocker, h
     fake.reply = endless
 
     assert failure_of(lambda: fake.client().run_exec(EXEC_ID, 0.3)).failure is Failure.TIMEOUT
+
+
+@pytest.mark.parametrize(
+    ("call", "status", "body"),
+    [
+        (lambda c: c.run_exec(EXEC_ID, 5), 200, frame(1, b"Ran now: succeeded.\n")),
+        (lambda c: c.run_exec(EXEC_ID, 5), 200, b""),
+        (lambda c: c.inspect_exec(EXEC_ID, 5), 200, b'{"Running": false, "ExitCode": 0}'),
+        (lambda c: c.create_exec(["hermes"], "hermes", 5), 201, b'{"Id": "%s"}' % (b"a" * 64)),
+    ],
+)
+def test_answer_shorter_than_announced_is_lost(
+    fake: FakeDocker, call: Callable[[Docker], object], status: int, body: bytes
+) -> None:
+    fake.reply = answer(status, body, "Content-Length: 1000")
+
+    assert failure_of(lambda: call(fake.client())).failure is Failure.LOST
+
+
+def chunk(data: bytes) -> bytes:
+    return f"{len(data):x}\r\n".encode() + data + b"\r\n"
+
+
+@pytest.mark.parametrize("whole", [True, False])
+def test_chunked_answer_counts_only_with_its_end(fake: FakeDocker, whole: bool) -> None:
+    body = chunk(frame(1, b"done\n")) + (b"0\r\n\r\n" if whole else b"")
+    fake.reply = answer(200, body, "Transfer-Encoding: chunked")
+
+    if whole:
+        assert fake.client().run_exec(EXEC_ID, 5).stdout == b"done\n"
+    else:
+        assert failure_of(lambda: fake.client().run_exec(EXEC_ID, 5)).failure is Failure.LOST
+
+
+def test_negative_chunk_size_does_not_lift_the_limit(fake: FakeDocker) -> None:
+    def flood(client: socket.socket) -> None:
+        answer(200, b"-1\r\n", "Transfer-Encoding: chunked")(client)
+        while not fake.release.is_set():
+            client.sendall(b" " * 65536)
+
+    fake.reply = flood
+
+    assert failure_of(lambda: fake.client().inspect_exec(EXEC_ID, 5)).failure is Failure.ANSWER
+
+
+def test_cut_by_the_limit_is_a_timeout_even_when_it_looks_wrong(fake: FakeDocker) -> None:
+    def half(client: socket.socket) -> None:
+        answer(200, b'{"Running"')(client)
+        fake.release.wait(10)
+
+    fake.reply = half
+
+    assert failure_of(lambda: fake.client().inspect_exec(EXEC_ID, 0.2)).failure is Failure.TIMEOUT
+
+
+@pytest.mark.parametrize("seconds", [0.0, -1.0])
+def test_nothing_is_sent_without_time_left(fake: FakeDocker, seconds: float) -> None:
+    error = failure_of(lambda: fake.client().restart_container(seconds))
+
+    assert error.failure is Failure.UNREACHABLE
+    assert fake.requests == []
+
+
+def test_nothing_is_sent_when_connecting_used_the_time(
+    fake: FakeDocker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    times = iter([0.0, 10.0])
+    monkeypatch.setattr("nurse.docker.time", SimpleNamespace(monotonic=lambda: next(times)))
+
+    assert failure_of(lambda: fake.client().restart_container(5)).failure is Failure.UNREACHABLE
+    assert fake.requests == []
+
+
+@pytest.mark.parametrize("host", ["a..b", "a" * 64])
+def test_name_that_cannot_be_encoded_is_unreachable(host: str) -> None:
+    client = Docker(f"http://{host}:2375", "hermes")
+
+    assert failure_of(lambda: client.restart_container(5)).failure is Failure.UNREACHABLE
+
+
+@pytest.mark.parametrize("exec_id", ["../containers/other/restart", "a" * 63, "A" * 64])
+def test_identifier_is_checked_before_it_enters_a_path(fake: FakeDocker, exec_id: str) -> None:
+    for call in (fake.client().run_exec, fake.client().inspect_exec):
+        assert failure_of(lambda: call(exec_id, 5)).failure is Failure.UNREACHABLE  # noqa: B023
+    assert fake.requests == []
+
+
+def test_proxy_of_the_environment_is_not_used(
+    fake: FakeDocker, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in ("http_proxy", "HTTP_PROXY"):
+        monkeypatch.setenv(name, "http://127.0.0.1:1")
+    fake.reply = answer(204)
+
+    fake.client().restart_container(5)
+
+    assert len(fake.requests) == 1

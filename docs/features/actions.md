@@ -238,15 +238,22 @@ description. **Nothing uses it yet.**
   prepared with `Privileged` false, without terminal or input, for the user of the catalogue.
   The identifier that Docker returns must be 64 hexadecimal characters: it becomes part of a path.
 - **No redirection and no proxy of the environment** is followed.
-- **A total time limit for each call.** The connection is cut when it ends, even when the answer
-  comes drop by drop.
+- **A time limit for each call.** The connection is cut when it ends, even when the answer
+  comes drop by drop, and nothing is sent once it is over. **Limit:** it does not cover the
+  resolution of the proxy name, and each address of that name may take as long to connect.
 - **Limited answers.** 64 KiB for a JSON answer. For a command, the last 64 KiB of the standard
-  output and of the error output, each apart, so that one cannot cut a line of the other. An
-  output that stops inside a frame is marked incomplete.
+  output and of the error output, each apart, so that one cannot cut a line of the other. A
+  stream that is too long keeps whole lines only, so that the end of a long line cannot pass for
+  a line. An output that stops inside a frame is marked incomplete.
+- **Cut answers.** An answer shorter than the length or the chunks it announces is `lost`.
+  **Limit:** an answer that only ends with its connection can be cut between two frames without
+  a trace, and a status line followed by cut headers passes for an empty answer. So an output
+  never proves how a command ended: its state and the proof of its effect are needed too.
 - **Failures** carry a kind and at most a status, never a text from Docker or the command:
   `unreachable` (nothing was sent), `denied` (403 or 405 from the proxy), `status`, `timeout`,
-  `lost` and `answer`. After `timeout` or `lost`, the command or the restart **may go on**: Docker
-  has no call to stop it.
+  `lost` and `answer`. **Only `unreachable` and `denied` say that nothing happened,** `denied`
+  taking for granted that the proxy refuses before passing anything on. After any other failure
+  of a command or a restart, it may have run and **may go on**: Docker has no call to stop it.
 
 **Limits.** Tried against a fake server only, never against Docker or the proxy. Whether the
 proxy passes the output of a command this way is **unverified**.

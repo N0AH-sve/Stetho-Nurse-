@@ -29,11 +29,14 @@ _STDERR = 2
 
 
 class Failure(Enum):
+    """Only `UNREACHABLE` and `DENIED` say that nothing happened. After any other failure of a
+    command or a restart, its outcome is unknown: it may have run, and may go on."""
+
     UNREACHABLE = "unreachable"  # nothing was sent
     DENIED = "denied"  # the proxy does not allow the call
     STATUS = "status"  # another unexpected status
-    TIMEOUT = "timeout"  # sent, and not finished in time: it may go on
-    LOST = "lost"  # sent, and the connection broke: it may go on
+    TIMEOUT = "timeout"  # sent, and not finished in time
+    LOST = "lost"  # sent, and the connection broke or the answer was cut
     ANSWER = "answer"  # an answer that cannot be understood
 
 
@@ -50,8 +53,10 @@ class Output:
 
     stdout: bytes
     stderr: bytes
-    truncated: bool  # only the end of a stream was kept
-    complete: bool  # the answer did not stop in the middle of a frame
+    truncated: bool  # only the last whole lines of a stream were kept
+    # The answer did not stop in the middle of a frame. It may still have been cut between two:
+    # only the state of the command and the proof of its effect say how it ended.
+    complete: bool
 
 
 @dataclass(frozen=True)
@@ -60,10 +65,16 @@ class ExecState:
     exit_code: int | None
 
 
+def _check_whole(response: http.client.HTTPResponse) -> None:
+    """`read1` says nothing when an answer ends before the length that it announced."""
+    if response.length:
+        raise DockerError(Failure.LOST)
+
+
 def _read_output(response: http.client.HTTPResponse) -> Output:
     """Separates the two streams of a command without ever holding more than their ends."""
     kept = {_STDOUT: bytearray(), _STDERR: bytearray()}
-    truncated = False
+    shortened: set[int] = set()
     header = bytearray()
     stream, remaining = _STDOUT, 0
     while chunk := response.read1(_CHUNK_BYTES):
@@ -77,7 +88,7 @@ def _read_output(response: http.client.HTTPResponse) -> Output:
                 tail += part
                 if len(tail) > OUTPUT_BYTES:
                     del tail[:-OUTPUT_BYTES]
-                    truncated = True
+                    shortened.add(stream)
                 continue
             part = chunk[position : position + _HEADER_BYTES - len(header)]
             position += len(part)
@@ -87,15 +98,24 @@ def _read_output(response: http.client.HTTPResponse) -> Output:
                 if stream not in kept or any(header[1:4]):
                     raise DockerError(Failure.ANSWER)
                 header.clear()
-    return Output(
-        bytes(kept[_STDOUT]), bytes(kept[_STDERR]), truncated, not header and not remaining
-    )
+    _check_whole(response)
+    for stream in shortened:
+        # The end of a long line, such as a name, must not pass for a whole line.
+        tail = kept[stream]
+        end = tail.find(b"\n")
+        del tail[: len(tail) if end < 0 else end + 1]
+    complete = not header and not remaining
+    return Output(bytes(kept[_STDOUT]), bytes(kept[_STDERR]), bool(shortened), complete)
 
 
 def _read_object(response: http.client.HTTPResponse) -> dict[str, object]:
-    content = response.read(_MAX_ANSWER_BYTES + 1)
-    if len(content) > _MAX_ANSWER_BYTES:
-        raise DockerError(Failure.ANSWER)
+    # Not `read`: with a negative chunk size it would read without any limit.
+    content = bytearray()
+    while chunk := response.read1(_CHUNK_BYTES):
+        content += chunk
+        if len(content) > _MAX_ANSWER_BYTES:
+            raise DockerError(Failure.ANSWER)
+    _check_whole(response)
     try:
         document = json.loads(content)
     except (ValueError, RecursionError):
@@ -103,6 +123,12 @@ def _read_object(response: http.client.HTTPResponse) -> dict[str, object]:
     if not isinstance(document, dict):
         raise DockerError(Failure.ANSWER)
     return document
+
+
+def _check_exec_id(exec_id: str) -> None:
+    """The identifier becomes part of a path."""
+    if not _EXEC_ID.fullmatch(exec_id):
+        raise DockerError(Failure.UNREACHABLE)
 
 
 def _check_status(status: int, expected: int) -> None:
@@ -140,13 +166,16 @@ class Docker:
     def run_exec(self, exec_id: str, seconds: float) -> Output:
         """Runs a prepared command and waits for the end of its output.
 
-        After `TIMEOUT` or `LOST` the command may go on: Docker has no call to stop it.
+        After a failure other than `UNREACHABLE` or `DENIED` the command may go on: Docker has
+        no call to stop it.
         """
+        _check_exec_id(exec_id)
         body = {"Detach": False, "Tty": False}
         with self._exchange("POST", f"/exec/{exec_id}/start", body, 200, seconds) as response:
             return _read_output(response)
 
     def inspect_exec(self, exec_id: str, seconds: float) -> ExecState:
+        _check_exec_id(exec_id)
         with self._exchange("GET", f"/exec/{exec_id}/json", None, 200, seconds) as response:
             document = _read_object(response)
         running, code = document.get("Running"), document.get("ExitCode")
@@ -164,17 +193,25 @@ class Docker:
     def _exchange(
         self, method: str, path: str, body: object, expected: int, seconds: float
     ) -> Iterator[http.client.HTTPResponse]:
-        """One request on its own connection, cut after `seconds` in total.
+        """One request on its own connection, cut `seconds` after the start of the call.
+
+        The limit does not cover the resolution of the name, and each of its addresses may take
+        `seconds` to connect. Nothing is sent once the time is over.
 
         Neither a redirection nor a proxy of the environment is followed.
         """
+        if seconds <= 0:
+            raise DockerError(Failure.UNREACHABLE)
         deadline = time.monotonic() + seconds
         connection = http.client.HTTPConnection(self._host, self._port, timeout=seconds)
         try:
             try:
                 connection.connect()
-            except OSError:
+            except (OSError, UnicodeError):  # a name that cannot be encoded is a `UnicodeError`
                 raise DockerError(Failure.UNREACHABLE) from None
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise DockerError(Failure.UNREACHABLE)
             expired = threading.Event()
             opened = connection.sock
 
@@ -184,7 +221,7 @@ class Docker:
                     opened.shutdown(socket.SHUT_RDWR)
 
             # A limit on each reading would let an answer that comes drop by drop last for ever.
-            timer = threading.Timer(max(0.0, deadline - time.monotonic()), cut)
+            timer = threading.Timer(left, cut)
             timer.daemon = True
             timer.start()
             try:
