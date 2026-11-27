@@ -83,7 +83,6 @@ ERRORS = {
     "405": ("MethodNotAllowed",),
     "413": ("PayloadTooLarge",),
     "415": ("UnsupportedMediaType",),
-    "429": ("TooManyRequests",),
     "500": ("InternalError",),
 }
 
@@ -216,7 +215,6 @@ CODES = {
         "405",
         "413",
         "415",
-        "429",
         "500",
     },
     ("GET", "/api/v1/prescriptions/{rx_id}"): READ | {"404"},
@@ -268,8 +266,6 @@ def test_other_enumerations_are_the_decided_ones() -> None:
         "cross_site",
         "payload_too_large",
         "unsupported_media_type",
-        "bad_target",
-        "rate_limited",
     ]
 
 

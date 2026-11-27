@@ -209,7 +209,6 @@ paths:
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "413": { $ref: "#/components/responses/PayloadTooLarge" }
         "415": { $ref: "#/components/responses/UnsupportedMediaType" }
-        "429": { $ref: "#/components/responses/TooManyRequests" }
         "500": { $ref: "#/components/responses/InternalError" }
 
   /api/v1/prescriptions/{rx_id}:
@@ -295,9 +294,6 @@ components:
     UnsupportedMediaType:
       description: Only JSON is accepted.
       content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
-    TooManyRequests:
-      description: Limit of actions reached.
-      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
     InternalError:
       description: Unexpected error. No detail is given.
       content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
@@ -319,7 +315,7 @@ components:
           description: Stable, for programs.
           enum: [invalid_request, invalid_host, unauthorized, not_found, method_not_allowed,
                  internal_error, csrf_invalid, cross_site, payload_too_large,
-                 unsupported_media_type, bad_target, rate_limited]
+                 unsupported_media_type]
         message:
           description: In the language of the installation.
           type: string
@@ -558,7 +554,10 @@ components:
         rx_id: { $ref: "#/components/schemas/PrescriptionId" }
         status: { enum: [queued, done, refused, failed, timeout, unexpected, unverified] }
         refusal_reason:
-          description: A code. The list of codes comes with NURSE.
+          description: >
+            A code: invalid_request, expired, duplicate, unknown_action, auto_disabled,
+            invalid_target, state_unreadable, target_not_found, not_relevant, too_soon,
+            rate_limited or execution_disabled. More codes come with the execution of actions.
           type: [string, "null"]
           pattern: "^[a-z][a-z0-9_]{0,127}$"
         exit_code: { type: [integer, "null"] }
@@ -582,5 +581,7 @@ components:
       required: [prescription, result]
       additionalProperties: false
       properties:
-        prescription: { $ref: "#/components/schemas/Prescription" }
+        prescription:
+          description: Null for a request that NURSE could not read as a prescription.
+          oneOf: [{ $ref: "#/components/schemas/Prescription" }, { type: "null" }]
         result: { $ref: "#/components/schemas/PrescriptionResult" }
