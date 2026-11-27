@@ -46,6 +46,9 @@ catalogue contains five actions.
 
 ## Open points
 
+- **Invalid requests in the action log.** Refused requests must be logged, but an entry of the
+  [API contract](api.md#contract) can only hold a valid prescription. Settle this before the
+  action log is served.
 - Default value of the total hourly cap.
 
 Raised by [reading the Hermes commands](../hermes/commands.md); no decision yet:
