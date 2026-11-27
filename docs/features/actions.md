@@ -1,7 +1,8 @@
 # Corrective actions (NURSE)
 
 > Status: the settings, the catalogue and the reception of [requests](#requests) are
-> implemented, as well as the [checks in Hermes](#checks-in-hermes). No command is run.
+> implemented, as well as the [checks in Hermes](#checks-in-hermes). The
+> [Docker client](#docker-client) is written but not used yet. No command is run.
 
 ## Purpose
 
@@ -227,6 +228,29 @@ leaves the requests waiting.
 
 No action is run yet: only tests record one.
 
+## Docker client
+
+`nurse/docker.py` holds the [four calls](../hermes/commands.md#docker-api-calls) that NURSE needs:
+prepare a command, run it, read how it ended and restart the container. It reads no container
+description. **Nothing uses it yet.**
+
+- **The configured container only,** without API version in the paths. A command is always
+  prepared with `Privileged` false, without terminal or input, for the user of the catalogue.
+  The identifier that Docker returns must be 64 hexadecimal characters: it becomes part of a path.
+- **No redirection and no proxy of the environment** is followed.
+- **A total time limit for each call.** The connection is cut when it ends, even when the answer
+  comes drop by drop.
+- **Limited answers.** 64 KiB for a JSON answer. For a command, the last 64 KiB of the standard
+  output and of the error output, each apart, so that one cannot cut a line of the other. An
+  output that stops inside a frame is marked incomplete.
+- **Failures** carry a kind and at most a status, never a text from Docker or the command:
+  `unreachable` (nothing was sent), `denied` (403 or 405 from the proxy), `status`, `timeout`,
+  `lost` and `answer`. After `timeout` or `lost`, the command or the restart **may go on**: Docker
+  has no call to stop it.
+
+**Limits.** Tried against a fake server only, never against Docker or the proxy. Whether the
+proxy passes the output of a command this way is **unverified**.
+
 ## Decided, not implemented yet
 
 Decided on 2026-11-27.
@@ -234,6 +258,9 @@ Decided on 2026-11-27.
 ### Execution
 
 - **Manual actions first.** Automatic requests stay refused until the alerts exist.
+- **Switch for manual actions.** A required setting of NURSE, `manual_actions`, false in the
+  example. While it is false, a request that passes every check is refused with
+  `execution_disabled`, and STETHO shows no button.
 - **One action at a time.** A request received during an action is refused with `busy`, without
   queue. **Limit:** a long rerun also blocks an urgent restart.
 - **Catalogue.** The five actions, without `gateway start`. A restart without effect is
