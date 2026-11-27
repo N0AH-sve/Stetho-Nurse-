@@ -206,10 +206,11 @@ leaves the requests waiting.
   becomes unusable while NURSE runs refuses everything.
 - **A lost state file is not a first start.** NURSE writes `state.json`, `started.json` and then
   the marker. While it runs, or once the marker is there, a missing state file is a loss, even
-  when both are missing: it is never written again. Without the marker, `started.json` without
+  when both are missing: it is never recreated empty. Without the marker, `started.json` without
   `state.json`, or a missing `started.json` while the state lists actions, is a loss too;
-  anything else is an interrupted first start, which is resumed.
-- **To start again after a loss,** restore the missing file. Removing the three files is a new
+  otherwise, readable and valid files are an interrupted first start, which is resumed.
+- **To start again after a loss,** restore an up-to-date copy of the missing file: an older one
+  loses the limits or the protection of the later actions. Removing the three files is a new
   first start: the limits and the protection of the past actions are lost. **Limit:** NURSE
   cannot tell the loss of the three files from a first start.
 - **Such a refusal never answers for an action.** The identifiers of the actions are then read

@@ -1,4 +1,3 @@
-import contextlib
 import json
 import os
 import signal
@@ -80,9 +79,8 @@ def drop(tmp_path: Path, content: object, name: str = "rx-1.json") -> Path:
 
 def reception(tmp_path: Path, check: HermesCheck = refuse_unchecked, **kwargs: Any) -> Reception:
     configured = settings(tmp_path)
-    # As when NURSE starts, unless the test has prepared files that would stop it.
-    with contextlib.suppress(StateError):
-        records.create_state_files(configured.log_dir, load_state(configured.log_dir))
+    # As when NURSE starts.
+    records.create_state_files(configured.log_dir, load_state(configured.log_dir))
     return Reception(configured, ACTIONS, kwargs.get("clock", lambda: NOW), check_hermes=check)
 
 
@@ -906,9 +904,14 @@ def test_program_does_not_start_with_an_unusable_state(
     assert list(configured.results_dir.iterdir()) == []
 
 
-def test_losing_the_identifiers_of_known_actions_is_not_a_first_start(tmp_path: Path) -> None:
+@pytest.mark.parametrize("marker", [True, False])
+def test_losing_the_identifiers_of_known_actions_is_not_a_first_start(
+    tmp_path: Path, marker: bool
+) -> None:
     interrupted(tmp_path)
     (tmp_path / "log" / "started.json").unlink()
+    if not marker:  # the state alone must then tell the loss
+        (tmp_path / "log" / "initialized").unlink()
 
     with pytest.raises(StateError):
         load_state(tmp_path / "log")
@@ -1239,11 +1242,14 @@ def test_number_too_large_to_be_written_back_makes_the_state_unusable(
             load_state(tmp_path)
 
 
-def test_ended_actions_alone_need_their_identifiers(tmp_path: Path) -> None:
+@pytest.mark.parametrize("marker", [True, False])
+def test_ended_actions_alone_need_their_identifiers(tmp_path: Path, marker: bool) -> None:
     reception(tmp_path)
     state = State()
     started_and_done(tmp_path, state, "a", EPOCH)
     (tmp_path / "log" / "started.json").unlink()
+    if not marker:  # the state alone must then tell the loss
+        (tmp_path / "log" / "initialized").unlink()
 
     with pytest.raises(StateError):
         load_state(tmp_path / "log")
@@ -1393,14 +1399,16 @@ def test_old_action_listed_in_the_state_keeps_its_protection(tmp_path: Path) -> 
     assert not (tmp_path / "results" / "old.json").exists()
 
 
-@pytest.mark.parametrize("both", [True, False])
-def test_identifiers_lost_while_running_are_not_a_first_start(tmp_path: Path, both: bool) -> None:
+@pytest.mark.parametrize("lost", ["identifiers", "both files", "the three files"])
+def test_identifiers_lost_while_running_are_not_a_first_start(tmp_path: Path, lost: str) -> None:
     service = running_with_an_action(tmp_path)
     (tmp_path / "log" / "started.json").unlink()
-    if both:
-        (tmp_path / "log" / "state.json").unlink()
-    else:
+    if lost == "identifiers":
         (tmp_path / "log" / "state.json").write_bytes(with_state())
+    else:
+        (tmp_path / "log" / "state.json").unlink()
+    if lost == "the three files":  # only a running NURSE can still tell
+        (tmp_path / "log" / "initialized").unlink()
     drop(tmp_path, request())
 
     service.run_once()
@@ -1408,6 +1416,8 @@ def test_identifiers_lost_while_running_are_not_a_first_start(tmp_path: Path, bo
     assert list((tmp_path / "results").iterdir()) == []
     assert [line["result"]["refusal_reason"] for line in journal(tmp_path)] == ["state_unreadable"]
     assert not (tmp_path / "log" / "started.json").exists()
+    if lost != "identifiers":
+        assert not (tmp_path / "log" / "state.json").exists()
 
 
 def test_old_pending_action_keeps_its_identifier(tmp_path: Path) -> None:

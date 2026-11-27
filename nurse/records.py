@@ -233,7 +233,7 @@ def _parse_started(document: object) -> dict[str, int]:
 def load_started(log_dir: Path) -> frozenset[str]:
     """The identifiers of the actions, read apart from the state.
 
-    A missing file raises `StateError` too: NURSE creates it when it starts, so it was lost.
+    A missing file raises `StateError` too: NURSE creates it at its first start, so it was lost.
     """
     document = _read_json(log_dir, STARTED_NAME)
     if document is _MISSING:
