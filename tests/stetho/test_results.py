@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from stetho.anomalies import AnomalyCode
 from stetho.results import Detail, Item, SensorResult, Status, overall_status, worst_status
 
 NOW = datetime(2026, 11, 27, 12, 0, tzinfo=UTC)
@@ -71,6 +72,7 @@ def test_complete_result_is_accepted() -> None:
         details=(detail,),
         items=(item(status=Status.WARN, details=(detail,), actions=("RERUN_JOB",)),),
         actions=("RESTART_GATEWAY",),
+        anomalies=(AnomalyCode.UNEXPECTED_VALUE,),
         checked_at=NOW.astimezone(ZoneInfo("Europe/Paris")),
     )
 
@@ -134,6 +136,7 @@ def test_healthy_or_info_items_do_not_limit_the_sensor(
         {"actions": ("A" * 65,)},
         {"actions": ("PAUSE_JOB", "PAUSE_JOB")},
         {"items": (item(), item())},
+        {"anomalies": (AnomalyCode.PARSE_ERROR, AnomalyCode.PARSE_ERROR)},
     ],
 )
 def test_invalid_sensor_result_is_refused(changes: dict[str, Any]) -> None:

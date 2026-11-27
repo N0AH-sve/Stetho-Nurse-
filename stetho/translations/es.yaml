@@ -8,3 +8,28 @@ status:
 banner:
   all_ok: "Todo funciona"
   nothing_checked: "No se ha podido comprobar nada"
+anomaly:
+  hidden_value: "valor oculto"
+  reason:
+    permission_denied: "acceso denegado"
+    locked: "la base de datos está bloqueada"
+    other: "error de lectura"
+  message:
+    source_missing: "No se encuentra {source}. Puede que Hermes esté detenido o que la carpeta de datos esté mal montada."
+    source_unreadable: "No se puede leer {source}: {reason}."
+    parse_error: "No se puede interpretar {source} (formato no válido)."
+    unexpected_value: "{field} vale «{value}», un valor que STETHO no conoce. Se esperaba: {expected}."
+    schema_changed: "El formato de {source} ha cambiado ({field}). Puede que Hermes se haya actualizado."
+    implausible_value: "{field} = {value} no es verosímil."
+    sensor_error: "El sensor {sensor} ha tenido un error."
+    sensor_timeout: "El sensor {sensor} no ha respondido a tiempo."
+    action_failed: "La acción {action} ha fallado (código {exit_code})."
+    action_failed_target: "La acción {action} sobre {target} ha fallado (código {exit_code})."
+    action_timeout: "La acción {action} no ha terminado en {timeout} s."
+    action_timeout_target: "La acción {action} sobre {target} no ha terminado en {timeout} s."
+    action_unexpected_output: "La acción {action} ha dado una respuesta inesperada. Consulta el detalle."
+    action_unexpected_output_target: "La acción {action} sobre {target} ha dado una respuesta inesperada. Consulta el detalle."
+    action_unverified: "La acción {action} se ha iniciado, pero no se ve su efecto."
+    action_unverified_target: "La acción {action} sobre {target} se ha iniciado, pero no se ve su efecto."
+    proxy_denied: "El proxy de Docker ha rechazado la acción {action}. Hay que comprobarlo ahora."
+    proxy_denied_target: "El proxy de Docker ha rechazado la acción {action} sobre {target}. Hay que comprobarlo ahora."

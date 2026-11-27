@@ -8,3 +8,28 @@ status:
 banner:
   all_ok: "Everything is working"
   nothing_checked: "Nothing could be checked"
+anomaly:
+  hidden_value: "hidden value"
+  reason:
+    permission_denied: "access denied"
+    locked: "the database is locked"
+    other: "read error"
+  message:
+    source_missing: "{source} cannot be found. Hermes may be stopped, or the data folder may be wrongly mounted."
+    source_unreadable: "{source} cannot be read: {reason}."
+    parse_error: "{source} cannot be understood (invalid format)."
+    unexpected_value: "{field} is “{value}”, a value STETHO does not know. Expected: {expected}."
+    schema_changed: "The format of {source} has changed ({field}). Hermes may have been updated."
+    implausible_value: "{field} = {value} is not plausible."
+    sensor_error: "The {sensor} sensor met an error."
+    sensor_timeout: "The {sensor} sensor did not answer in time."
+    action_failed: "The action {action} failed (exit code {exit_code})."
+    action_failed_target: "The action {action} on {target} failed (exit code {exit_code})."
+    action_timeout: "The action {action} did not finish within {timeout} s."
+    action_timeout_target: "The action {action} on {target} did not finish within {timeout} s."
+    action_unexpected_output: "The action {action} answered something unexpected. See the details."
+    action_unexpected_output_target: "The action {action} on {target} answered something unexpected. See the details."
+    action_unverified: "The action {action} was started, but its effect cannot be seen."
+    action_unverified_target: "The action {action} on {target} was started, but its effect cannot be seen."
+    proxy_denied: "The Docker proxy refused the action {action}. Check this now."
+    proxy_denied_target: "The Docker proxy refused the action {action} on {target}. Check this now."

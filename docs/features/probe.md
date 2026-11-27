@@ -34,6 +34,7 @@ Defined in `stetho/results.py`.
 | `details` | List of label and value pairs; only the value may be empty |
 | `items` | Elements followed by the sensor, such as one per scheduled job |
 | `actions` | Action codes offered as buttons |
+| `anomalies` | Codes of the current [anomalies](anomalies.md), without repeats |
 
 An **item** has an `id`, a `label`, a `status`, a `summary`, `details` and `actions`. It has no
 sub-items. Its `id` is not empty and is unique within its sensor.
@@ -46,8 +47,6 @@ sub-items. Its `id` is not empty and is unique within its sensor.
   sensor may be more severe than its items, for example when its source has a problem. Items
   that are `ok` or `info` set no limit.
 - **Invalid result.** It cannot be built: `ValueError` is raised, without quoting any value.
-
-Anomalies are not part of the format yet.
 
 ## Tests
 
