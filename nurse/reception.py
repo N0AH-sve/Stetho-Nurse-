@@ -20,6 +20,8 @@ from nurse.records import (
     State,
     StateError,
     append_journal,
+    create_started,
+    load_started,
     load_state,
     prune_results,
     recover_actions,
@@ -170,6 +172,7 @@ class Reception:
         Raises `StateError` for an unusable state: what was interrupted is then unknown.
         """
         state = load_state(self._settings.log_dir)
+        create_started(self._settings.log_dir, state)
         directories = self._settings.log_dir, self._settings.results_dir
         now = self._clock()
         for rx_id in recover_actions(*directories, state, _timestamp(now), int(now.timestamp())):
@@ -189,8 +192,10 @@ class Reception:
             names = self._waiting(folder)
             if names:
                 state = self._load()
+                # Without a state, the identifiers of the actions are read apart.
+                actions = self._load_actions() if state is None else frozenset()
                 for name in names:
-                    self._handle(folder, name, state)
+                    self._handle(folder, name, state, actions)
         finally:
             os.close(folder)
         self._prune(bool(names))
@@ -198,7 +203,7 @@ class Reception:
 
     def _load(self) -> State | None:
         try:
-            state = load_state(self._settings.log_dir)
+            state = load_state(self._settings.log_dir, running=True)
         except StateError:
             if not self._state_failed:
                 _LOG.error("the state of NURSE cannot be read: every request is refused")
@@ -206,6 +211,13 @@ class Reception:
             return None
         self._state_failed = False
         return state
+
+    def _load_actions(self) -> frozenset[str] | None:
+        """`None` when the actions cannot be known."""
+        try:
+            return load_started(self._settings.log_dir)
+        except StateError:
+            return None
 
     def _prune(self, handled: bool) -> None:
         """Old results go even when no request arrives."""
@@ -246,13 +258,15 @@ class Reception:
         self._full_of_stuck = full
         return [] if full else found
 
-    def _handle(self, folder: int, name: str, state: State | None) -> None:
+    def _handle(
+        self, folder: int, name: str, state: State | None, actions: frozenset[str] | None
+    ) -> None:
         rx_id = name.removesuffix(_SUFFIX)
         content = read_request(folder, name)
         prescription = None if content is None else parse_prescription(content, rx_id)
         now = self._clock()
         try:
-            self._record(rx_id, prescription, state, now)
+            self._record(rx_id, prescription, state, actions, now)
             os.unlink(name, dir_fd=folder)
         except OSError as error:
             # The message could hold a path of the installation.
@@ -260,12 +274,20 @@ class Reception:
             self._stuck.add(name)
 
     def _record(
-        self, rx_id: str, prescription: Prescription | None, state: State | None, now: datetime
+        self,
+        rx_id: str,
+        prescription: Prescription | None,
+        state: State | None,
+        actions: frozenset[str] | None,
+        now: datetime,
     ) -> None:
         seconds = int(now.timestamp())
         answered = result_path(self._settings.results_dir, rx_id).exists()
-        if state is not None and rx_id in state.known_actions():
-            answered = True  # its only answer is the one of the action
+        if state is not None:
+            actions = state.known_actions()
+            answered = answered or rx_id in actions
+        # An action only has its own answer. When the actions cannot be known, nothing is written.
+        result_kept = answered or actions is None or rx_id in actions
         if state is not None:
             state.forget(seconds)
             if len(state.handled) >= MAX_HANDLED:
@@ -292,7 +314,7 @@ class Reception:
             state.handled, state.recent = saved.handled, saved.recent
         append_journal(self._settings.log_dir, entry)
         # The first answer to an identifier is never replaced.
-        if not answered:
+        if not result_kept:
             write_result(self._settings.results_dir, entry["result"])
         if state is not None:
             write_log(self._settings.results_dir, state.log())
