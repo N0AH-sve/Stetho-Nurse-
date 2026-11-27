@@ -10,9 +10,13 @@ timezone: Europe/Paris       # used to display times
 server:
   host: 0.0.0.0              # inside the container; only publish it on 127.0.0.1
   port: 8090
+  # Host names that requests may use, without port. Any other is refused. Add the public name
+  # served by the reverse proxy.
+  allowed_hosts: [localhost, 127.0.0.1]
 
 auth:
-  password: ""               # secret; empty means the reverse proxy handles authentication
+  # Secret: at least 16 characters. Empty means the reverse proxy handles authentication.
+  password: ""
 
 probe:
   interval_seconds: 30

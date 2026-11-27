@@ -36,7 +36,7 @@ Status values:
 | NURSE dependencies | Standard library only | Required | The privileged code stays short and reviewable |
 | NURSE action catalogue | TOML (`actions.toml`) | Approved | The specified YAML cannot be read without a dependency |
 | Docker access | Proxy filtering by method and path, such as `wollomatic/socket-proxy` | Required | NURSE never mounts the Docker socket |
-| STETHO web server | Starlette and Uvicorn | Approved | Lightweight. FastAPI generates OpenAPI from code, while our contract is written first |
+| STETHO web server | Starlette and Uvicorn | In place | Lightweight. FastAPI generates OpenAPI from code, while our contract is written first |
 | Page rendering | Server-side Jinja2 templates with a little plain JavaScript | Approved | No front-end build step |
 | STETHO YAML parser | PyYAML (safe loader only) | In place | Mature and widely used |
 | Incident state | A small JSON file, written atomically | Approved | The specification asks for a small file; no database needed |

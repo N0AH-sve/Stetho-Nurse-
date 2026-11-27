@@ -81,3 +81,10 @@ gateway:
 probe:
   detail:
     error: "Erreur interne"
+api:
+  error:
+    invalid_host: "La demande utilise un nom d'hôte non autorisé."
+    unauthorized: "Un mot de passe est demandé."
+    not_found: "Introuvable."
+    method_not_allowed: "Cette méthode n'est pas acceptée."
+    internal_error: "STETHO a rencontré une erreur."

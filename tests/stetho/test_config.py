@@ -84,6 +84,65 @@ def test_lists_of_names_are_accepted() -> None:
     assert config.modules.kanban.boards == ("release-board",)
 
 
+@pytest.mark.parametrize(
+    ("hosts", "expected"),
+    [
+        (["localhost"], ("localhost",)),
+        (["Status.Example.COM", "127.0.0.1"], ("status.example.com", "127.0.0.1")),
+        (["[::1]", "[FD00::1]"], ("[::1]", "[fd00::1]")),
+        (["stetho_web"], ("stetho_web",)),
+    ],
+)
+def test_host_names_are_accepted_in_lower_case(hosts: list[str], expected: tuple[str, ...]) -> None:
+    assert parse_config(changed("server.allowed_hosts", hosts)).server.allowed_hosts == expected
+
+
+@pytest.mark.parametrize(
+    "hosts",
+    [
+        [],
+        "localhost",
+        None,
+        [1],
+        [""],
+        ["*"],
+        ["*.example.com"],
+        ["localhost:8090"],
+        ["http://localhost"],
+        ["example.com/path"],
+        ["example.com."],
+        [" localhost"],
+        ["localhost\n"],
+        ["-name"],
+        ["a..b"],
+        ["a" * 64],
+        [".".join(["abcdefg"] * 40)],
+        ["::1"],
+        ["[::1]:80"],
+        ["[not-an-address]"],
+        ["[127.0.0.1]"],
+        ["[fe80::1%eth0]"],
+        ["localhost", "LOCALHOST"],
+    ],
+)
+def test_other_host_names_are_refused(hosts: object) -> None:
+    message = error_of(changed("server.allowed_hosts", hosts))
+
+    assert message.startswith("server.allowed_hosts: expected")
+
+
+@pytest.mark.parametrize("password", ["", "a" * 16, "é" * 16, "with : colons and spaces"])
+def test_empty_or_long_password_is_accepted(password: str) -> None:
+    assert parse_config(changed("auth.password", password)).auth.password.reveal() == password
+
+
+@pytest.mark.parametrize("password", ["a", "a" * 15, "é" * 15])
+def test_short_password_is_refused_without_quoting_it(password: str) -> None:
+    message = error_of(changed("auth.password", password))
+
+    assert message == "auth.password: must be empty or have at least 16 characters"
+
+
 def test_gateway_thresholds_may_be_changed() -> None:
     document = changed("modules.gateway.overrides", {"down_after_minutes": 10})
 
@@ -159,6 +218,7 @@ def test_invalid_value_is_refused_and_named(path: str, value: object) -> None:
         "timezone",
         "server",
         "auth.password",
+        "server.allowed_hosts",
         "probe.interval_seconds",
         "paths.state_dir",
         "hermes.profile_labels",

@@ -1,7 +1,7 @@
 # Gateway
 
 > Status: the reader, the rules, the texts and the sensor are implemented. The
-> [probe](probe.md#probe) can run the sensor; no program starts it yet. The card is to be
+> [probe](probe.md#probe) runs the sensor. Its result is not served yet, and the card is to be
 > written.
 
 ## Purpose

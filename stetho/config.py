@@ -8,6 +8,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from ipaddress import IPv6Address
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import Literal
@@ -18,6 +19,10 @@ from stetho.yamlfile import YamlFileError, load_yaml
 
 _PRINTABLE_KEY = re.compile(r"[A-Za-z0-9_-]{1,40}")
 _MAX_PORT = 65535
+_MIN_PASSWORD_LENGTH = 16
+_MAX_HOST_LENGTH = 253
+_HOST_LABEL = r"[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?"
+_HOST_NAME = re.compile(rf"{_HOST_LABEL}(?:\.{_HOST_LABEL})*")
 # The thresholds an installation may change, as in the rules of the module.
 GATEWAY_THRESHOLDS = (
     "late_after_minutes",
@@ -60,6 +65,7 @@ class Secret:
 class ServerSettings:
     host: str
     port: int
+    allowed_hosts: tuple[str, ...]  # lower case; IPv6 addresses between brackets
 
 
 @dataclass(frozen=True)
@@ -218,6 +224,31 @@ class _Section:
             raise ConfigError(f"{self.path(key)}: expected an absolute path")
         return Path(value)
 
+    def host_names(self, key: str) -> tuple[str, ...]:
+        """A non-empty list of host names or addresses, without port or wildcard."""
+        value = self.take(key)
+        if (
+            not isinstance(value, list)
+            or not value
+            or not all(isinstance(item, str) and _is_host_name(item) for item in value)
+            or len({item.lower() for item in value}) != len(value)
+        ):
+            raise ConfigError(
+                f"{self.path(key)}: expected a list of distinct host names or addresses, without "
+                "port or wildcard; IPv6 addresses between brackets"
+            )
+        return tuple(item.lower() for item in value)
+
+    def password(self, key: str) -> Secret:
+        """Empty, or long enough."""
+        value = self.text(key, allow_empty=True)
+        if value and len(value) < _MIN_PASSWORD_LENGTH:
+            raise ConfigError(
+                f"{self.path(key)}: must be empty or have at least "
+                f"{_MIN_PASSWORD_LENGTH} characters"
+            )
+        return Secret(value)
+
     def names(self, key: str, wildcard: str) -> tuple[str, ...] | None:
         """A list of distinct folder names, or None for the wildcard word."""
         value = self.take(key)
@@ -234,6 +265,19 @@ class _Section:
                 "(letters, digits, '_' and '-')"
             )
         return tuple(value)
+
+
+def _is_host_name(value: str) -> bool:
+    if value.startswith("[") and value.endswith("]"):
+        address = value[1:-1]
+        if "%" in address:  # a zone of a local interface is never in a request
+            return False
+        try:
+            IPv6Address(address)
+        except ValueError:
+            return False
+        return True
+    return len(value) <= _MAX_HOST_LENGTH and _HOST_NAME.fullmatch(value) is not None
 
 
 def _timezone(root: _Section) -> ZoneInfo:
@@ -304,11 +348,15 @@ def parse_config(document: object) -> Config:
     timezone = _timezone(root)
 
     section = root.section("server")
-    server = ServerSettings(host=section.text("host"), port=section.positive_int("port", _MAX_PORT))
+    server = ServerSettings(
+        host=section.text("host"),
+        port=section.positive_int("port", _MAX_PORT),
+        allowed_hosts=section.host_names("allowed_hosts"),
+    )
     section.close()
 
     section = root.section("auth")
-    auth = AuthSettings(password=Secret(section.text("password", allow_empty=True)))
+    auth = AuthSettings(password=section.password("password"))
     section.close()
 
     section = root.section("probe")

@@ -32,6 +32,8 @@ Describes the rights of each component, secrets handling and the remaining risks
 - **Access to STETHO.** It goes through the reverse proxy, with the port bound to `127.0.0.1`
   only. If other users or programs on the server are not trusted, a STETHO password is also set
   (`auth.password`).
+- **Web protections.** Host names, password, methods, headers, errors and log are described with
+  the [HTTP API](api.md#security).
 - **Secrets in configuration.** Secrets live in the local configuration files. These are never
   committed, are mounted read-only and are readable only by the administrator and the service
   that needs them. Each service gets only its own file.

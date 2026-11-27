@@ -4,10 +4,9 @@ Monitoring for [Hermes Agent](https://github.com/NousResearch/hermes-agent): see
 whether it works, get an alert when it breaks, and repair it with predefined actions. Hermes
 itself is neither modified nor upgraded, and no LLM is involved.
 
-> **Status: early development.** The repository contains the development environment, the
-> documentation, and the core of STETHO: settings, translations, statuses, the result format of
-> the sensors and the anomaly model, the first module, `gateway`, and the probe that runs it.
-> There is no program to start yet.
+> **Status: early development.** STETHO starts, checks the `gateway` module periodically and
+> serves a protected server. Only `/health` is served so far: there is no status page yet, and
+> NURSE does not exist.
 
 ## How it works
 
@@ -46,6 +45,14 @@ git clone git@github.com:N0AH-sve/Stetho-Nurse-.git
 cd Stetho-Nurse-
 make setup   # Python environment and Git hooks
 make check   # lint, type check, tests
+```
+
+To start STETHO, copy `config/stetho.example.yaml` to `config/stetho.yaml`, which is never
+committed, and adapt it. Outside a container, set `server.host` to `127.0.0.1`: the example
+listens on every interface, and its password is empty.
+
+```bash
+uv run python -m stetho --config config/stetho.yaml
 ```
 
 | Command | Effect |
