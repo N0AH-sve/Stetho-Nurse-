@@ -1,6 +1,6 @@
 # Configuration
 
-> Status: STETHO settings are loaded and checked. The rest is to be written.
+> Status: STETHO settings and translations are loaded and checked. The rest is to be written.
 
 ## Purpose
 
@@ -48,6 +48,29 @@ build Python objects.
 
 `tests/stetho/test_config.py` loads the example file, then covers each kind of error and checks
 that messages do not repeat the content of the file.
+
+## Translations
+
+The user-facing texts are in `stetho/translations/`: `en.yaml`, `fr.yaml` and `es.yaml`. They
+ship with the code; an installation only chooses the language. `stetho/i18n.py` loads them.
+For now they hold the names of the statuses and the healthy banner.
+
+- **Keys.** Texts can be grouped. A text is asked for by its dotted key, such as
+  `banner.all_ok`. Each part of a key uses letters, digits and `_`, and does not start with a
+  digit. YAML does not read `no`, `yes`, `on` or `off` as a text, so these are refused unless
+  quoted.
+- **Placeholders.** A plain name in braces, such as `{name}`, without format or attribute.
+  `{{` and `}}` show a brace. An inserted value is never read as a template.
+- **Same content.** All three files are checked together, whatever the chosen language. A
+  missing or extra key, a different set of placeholders, an empty text or invalid YAML raises
+  `TranslationError`, which names the file and the problem. There is therefore no fallback to
+  another language.
+- **Requests.** Asking for an unknown key, or without exactly the expected placeholders, raises
+  `TranslationError`.
+
+To add a text, add the same key to the three files. `tests/stetho/test_i18n.py` covers these
+rules and checks the shipped files. Plural forms and the display of dates and durations are not
+handled yet.
 
 ## Planned content
 

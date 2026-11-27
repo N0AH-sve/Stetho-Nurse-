@@ -1,0 +1,9 @@
+# User-facing texts in English. The three files hold the same keys and the same {placeholders}.
+status:
+  ok: "OK"
+  warn: "Warning"
+  critical: "Critical"
+  info: "Information"
+  unknown: "Unknown"
+banner:
+  all_ok: "Everything is working"
