@@ -97,7 +97,16 @@ class View:
 def _banner(status: Status, sensors: tuple[SensorResult, ...], translator: Translator) -> str:
     if status is Status.OK:
         return translator.text("banner.all_ok")
-    worst = next((sensor for sensor in sensors if sensor.status is status), None)
+    # An assessed sensor first: what was not assessed is not a problem of its own.
+    worst = next(
+        iter(
+            sorted(
+                (sensor for sensor in sensors if sensor.status is status),
+                key=lambda sensor: not sensor.assessed,
+            )
+        ),
+        None,
+    )
     if worst is None:
         return translator.text("banner.nothing_checked")
     return translator.text("banner.problem", title=worst.title, summary=worst.summary)

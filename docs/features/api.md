@@ -43,7 +43,7 @@ protections.
 - **Report.** `summary` is the sentence of the banner. A report is **stale** when no new one has
   arrived for more than the longer of three probe intervals, or the sensor time limit plus one
   interval. `stale` is then true, every status is `unknown`, and every summary says that the data
-  is out of date. Advice is `null`, actions and details are empty, and the last known anomalies
+  is out of date. Advice is `null`, actions and details are empty, `assessed` is true, and the last known anomalies
   are kept: an old healthy sentence or repair button must not stay. Each sensor has `stale` too.
   Before the first pass, the status is `unknown`, `stale` is false, there is no sensor and
   `checked_at` is `null`.
@@ -64,7 +64,7 @@ protections.
 memory: no request runs a sensor. `stetho/web/report.py` shapes the answers.
 
 - **Banner sentence.** "Everything is working" when the status is `ok`. Otherwise, the title and
-  summary of the first sensor that has the overall status. When nothing counts, "Nothing could be
+  summary of the first sensor that has the overall status, an assessed one before any other. When nothing counts, "Nothing could be
   checked".
 - **Staleness** is measured with a clock that cannot be set back, from the time a report arrives:
   changing the date of the server hides nothing. With the example settings, a report is stale

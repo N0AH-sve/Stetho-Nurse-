@@ -138,6 +138,8 @@ class SensorResult:
         if len({item.id for item in self.items}) != len(self.items):
             raise ValueError("repeated item id")
         _check_not_assessed(self.assessed, self.status, self.advice, self.actions)
+        if not self.assessed and self.anomalies:
+            raise ValueError("a sensor that was not assessed has no anomaly of its own")
         if not self.assessed and any(
             item.assessed and item.status not in (Status.OK, Status.INFO) for item in self.items
         ):

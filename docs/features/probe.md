@@ -54,7 +54,8 @@ An **item** has an `id`, a `label`, a `status`, a `summary`, an optional `advice
   explains why in its sentence, and is **not a problem of its own**: no line among the problems,
   and no alert. Its card stays visible, marked "Not assessed". Since it is `unknown`, the card
   and the page are never healthy. A sensor is not assessed when nothing that was checked
-  explains its status; it then holds no assessed problem. A stale report counts as assessed.
+  explains its status; it then holds no assessed problem and no anomaly of its own, though it may
+  hold `ok` or `info` items that were checked. A stale report counts as assessed.
 - **Invalid result.** It cannot be built: `ValueError` is raised, without quoting any value.
 
 ## Probe
@@ -86,7 +87,8 @@ logged and does not end the monitoring.
 - After a **complete reading**, the anomalies of the sensor that were not seen again are over.
   Each one is counted once per reading.
 - After a **crash or timeout**, nothing was checked: earlier anomalies stay. Only an earlier
-  failure of the other kind ends.
+  failure of the other kind ends. Earlier anomalies also stay while a sensor is
+  [not assessed](#result-format), until it is checked again.
 - The log has a line when an anomaly **starts** and when it **ends**, not at each pass. It gives
   the module, code, source, field, action and target, never a received value. For an internal
   error, it adds the type and the calls in STETHO, again when they change.

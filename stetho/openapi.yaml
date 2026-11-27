@@ -342,8 +342,9 @@ components:
 
     Assessed:
       description: >
-        False when something was not checked on purpose, because what it depends on is down. The
-        status is then unknown, without advice or action, and it is not a problem of its own.
+        False when something was not checked on purpose, because what it depends on is down; for a
+        sensor, when nothing that was checked explains its status. The status is then unknown,
+        without advice or action, and it is not a problem of its own. A stale report is assessed.
       type: boolean
 
     Detail:

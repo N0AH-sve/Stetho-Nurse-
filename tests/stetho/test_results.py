@@ -209,6 +209,11 @@ def test_unassessed_sensor_cannot_hide_an_assessed_problem() -> None:
         sensor(status=Status.UNKNOWN, assessed=False, items=(found,))
 
 
+def test_unassessed_sensor_has_no_anomaly_of_its_own() -> None:
+    with pytest.raises(ValueError, match="no anomaly of its own"):
+        sensor(status=Status.UNKNOWN, assessed=False, anomalies=(AnomalyCode.PARSE_ERROR,))
+
+
 @pytest.mark.parametrize("status", [Status.OK, Status.INFO])
 def test_card_with_an_unassessed_item_never_looks_healthy(status: Status) -> None:
     with pytest.raises(ValueError, match="less severe than its items"):

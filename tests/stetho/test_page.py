@@ -306,13 +306,48 @@ def test_only_unassessed_cards_never_make_the_page_healthy() -> None:
     assert 'class="banner status-unknown"' in page_of(api)
 
 
+def with_skipped_item() -> Api:
+    card = result("a", Status.UNKNOWN, assessed=False, items=(skipped("job"),))
+    return published(run_probe(config(), [FakeSensor("a", card)]))
+
+
 def test_old_data_is_a_problem_even_if_it_was_not_assessed() -> None:
-    api = published(
-        run_probe(config(), [FakeSensor("a", result("a", Status.UNKNOWN, assessed=False))])
-    )
+    api = with_skipped_item()
     api.time.seconds += 1000
 
     page = page_of(api)
 
     assert "Not assessed" not in page
-    assert 'id="problems"' in page
+    assert ">Title a · job</td>" in page
+
+
+@pytest.mark.parametrize(("age", "assessed"), [(0, False), (1000, True)])
+def test_api_says_what_was_assessed(age: int, assessed: bool) -> None:
+    api = with_skipped_item()
+    api.time.seconds += age
+
+    (sensor,) = api.get("/api/v1/status").json["sensors"]
+
+    assert (sensor["assessed"], sensor["items"][0]["assessed"]) == (assessed, assessed)
+
+
+@pytest.mark.parametrize("unassessed_first", [True, False])
+def test_banner_names_the_assessed_problem(unassessed_first: bool) -> None:
+    sensors = [
+        FakeSensor("skipped", result("skipped", Status.UNKNOWN, assessed=False)),
+        FakeSensor("real", result("real", Status.UNKNOWN)),
+    ]
+    if not unassessed_first:
+        sensors.reverse()
+
+    page = page_of(published(run_probe(config(), sensors)))
+
+    assert "<h1>Title real: Summary real</h1>" in page
+
+
+def test_banner_names_an_unassessed_card_when_there_is_nothing_else() -> None:
+    sensors = [FakeSensor("skipped", result("skipped", Status.UNKNOWN, assessed=False))]
+
+    page = page_of(published(run_probe(config(), sensors)))
+
+    assert "<h1>Title skipped: Summary skipped</h1>" in page
