@@ -92,3 +92,5 @@ change of the script.
 - **Languages.** French, English and Spanish, chosen at installation. English is the default.
 - **One rendering**, on the server, rather than a second one in the script from the API.
 - **No Node.js** and no automated test of the script.
+- **Countdown between restarts,** with the action buttons: while NURSE would refuse a restart as
+  [too soon](actions.md#decided-not-implemented-yet), the page shows the time left.

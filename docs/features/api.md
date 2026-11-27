@@ -161,15 +161,6 @@ included: before the first pass, with each made-up scenario in the three languag
 field and anomaly code, for stale reports and for errors. It also checks that the routes marked
 as served, and only they, answer.
 
-## Open points
-
-To settle before the [actions](#actions) are served:
-
-- **Error codes and statuses.** The contract does not say which `code` goes with which status.
-  `bad_target` has no stated use next to `invalid_request`.
-- **Malformed `rx_id`.** Whether `GET /api/v1/prescriptions/{rx_id}` answers 404, as for a
-  sensor, or 400.
-
 ## Decisions
 
 - Any well-formed action code is accepted; NURSE validates it. See
@@ -180,3 +171,8 @@ To settle before the [actions](#actions) are served:
   not allowed.
 - **History.** The 7-day history of anomalies comes with the incident state of the alerts. The
   Hermes version stays in the `gateway` card.
+- **Answers to a request,** not served yet: 202 for a request left for NURSE, 400 for a
+  malformed one, 403 for a wrong CSRF token, 413 above the size, 503 when NURSE is absent or
+  nothing can be written. The contract gets this last answer with the routes. A refusal by NURSE, such as an unknown action or a limit, is in the
+  result, so these never give 429. A malformed `rx_id` gives 404. The code `bad_target` is
+  dropped.

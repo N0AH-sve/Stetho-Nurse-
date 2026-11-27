@@ -1,7 +1,7 @@
 # Corrective actions (NURSE)
 
-> Status: the settings and the catalogue are implemented. NURSE cannot be started yet: no
-> request is read and no command is run.
+> Status: the settings, the catalogue and the reception of [requests](#requests) are
+> implemented. Hermes is not read and no command is run.
 
 ## Purpose
 
@@ -96,39 +96,111 @@ seen.
 - **Shared directories.** STETHO and NURSE run as different users and share a group with limited
   rights.
 
-## Planned content
+## Requests
 
-- Prescription and result formats
-- Checks, in order
-- The five actions and their verification
-- Manual and automatic modes, rate limits
+`python -m nurse --config <file>` checks the requests. **It runs no action yet:** a request
+that passes every check is refused with `execution_disabled`. NURSE does not read Hermes yet
+either, so a request that reaches that check is refused with `state_unreadable`.
 
-Decided on 2026-11-27 and **not implemented yet**:
+The prescription folder is written by STETHO, the exposed service: everything in it is hostile.
+It is read every second, 20 files at most each time. Only names `<rx_id>.json` are considered;
+other names and folders are left alone, so STETHO writes a request under a name starting with a
+dot and then renames it. A request is a regular file without link, of 4 KiB at most. It is
+deleted once handled: the private journal keeps its trace.
 
-- **Total cap.** 7 actions per hour by default. Automatic actions are off by default.
-- **Hostile requests.** The prescription folder is written by STETHO, the exposed service.
-  Only regular files without link, of 4 KiB at most, named `<rx_id>.json`, are considered.
-  Results are written atomically. The folder is read every second, 20 files at most each time.
-  A request older than 5 minutes, or dated more than 1 minute ahead, is refused.
-- **Replays.** Handled identifiers and rate counters are kept in the private folder of NURSE and
-  survive a restart. If this state cannot be read, everything is refused.
+**STETHO must make its requests readable** by the shared group, whatever its umask: NURSE treats a
+file it cannot read as invalid, and deletes it. The logs of the container need a size limit, since
+each request writes a line.
+
+### Checks, in order
+
+The first check that fails gives the `refusal_reason`.
+
+| Check | Code |
+| --- | --- |
+| The state of NURSE can be read | `state_unreadable` |
+| The identifier has no result yet and was not handled in the last 10 minutes | `duplicate` |
+| A prescription of the contract, named after its identifier, without other or repeated field | `invalid_request` |
+| Created at most 5 minutes ago, and at most 1 minute ahead | `expired` |
+| The action is in the catalogue | `unknown_action` |
+| The request is not automatic: automatic actions come after the alerts | `auto_disabled` |
+| A target only when the action has one, within [both limits](#catalogue) | `invalid_target` |
+| Hermes allows it. **Not read yet** | `state_unreadable` |
+| At least 120 s since the last restart, of either kind and any origin | `too_soon` |
+| Under the hourly limits of the action and in total | `rate_limited` |
+| An action may be run. **Not yet** | `execution_disabled` |
+
+**Limits** count the actions that were started, whatever their result, over the last 60
+minutes. A refused request does not count. Nothing is started yet, so only tests reach them.
+
+### State, results and journal
+
+| Where | What |
+| --- | --- |
+| `log_dir/state.json` | Handled identifiers, started actions and the recent entries. Saved before anything is answered. A missing file is a first start; an unusable one refuses everything and is never overwritten |
+| `log_dir/journal.jsonl` | One line per handled request: 5 files of 1 MiB at most |
+| `results_dir/<rx_id>.json` | The result, readable by the group. The first answer to an identifier is never replaced. Removed after 7 days, or when there are more than 1000 |
+| `results_dir/_log.json` | The last 100 actions, the most recent first, with 20 invalid requests at most. No identifier can take this name |
+
+Results and the state are written atomically, and their folder is synced. Only one NURSE can run on
+a private folder: it holds a lock there, and removes at startup the files left half written. With
+20 000 identifiers to remember, requests are refused with `state_unreadable` until some are
+forgotten. With 1000 files that cannot be handled, nothing more is tried. Old results are removed
+even without any request. When the state or the journal cannot be written,
+or a request cannot be deleted, the file is not tried again until NURSE restarts or the file
+goes away. **Limits:** with an unusable state, `_log.json` is not updated. A stopped NURSE
+leaves the requests waiting.
+
+**Not settled, to be done before any action runs:**
+
+- **A flood erases the trace.** Well-formed requests that are refused are not capped: at full rate
+  they push real entries out of `_log.json` within seconds, and out of the journal within minutes.
+  Older results are pushed out too.
+- **Interrupted request.** If NURSE stops after saving the state and before answering, the request
+  is then answered `duplicate`, as if it had been refused.
+
+## Decided, not implemented yet
+
+Decided on 2026-11-27.
+
+### Reading Hermes
+
 - **Nothing unverified runs.** NURSE refuses when it cannot read the target or the state of the
   gateway, and refuses a restart when the intent is `stopped`, absent or unknown. For an absent
   intent, this is stricter than the buttons of STETHO.
-- **Invalid requests** are logged with `prescription: null` and the reason.
+- **Main profile and default board only.** A Kanban action is refused when another board is
+  active. **Limit:** the board can still change between the check and the action.
+- **Relevance.** A rerun needs an enabled job that is not running. Reclaiming a task needs a
+  running task with no sign of life for 15 minutes, or past its maximum duration.
+
+### Execution
+
+- **Manual actions first.** Automatic requests stay refused until the alerts exist.
+- **One action at a time.** A request received during an action is refused with `busy`, without
+  queue. **Limit:** a long rerun also blocks an urgent restart.
 - **Catalogue.** The five actions, without `gateway start`. A restart without effect is
   `unverified`.
 - **Proof.** Restarts: a new process and a real sign of life later than the request. Rerun: a
   new **successful** run. Pause: the job is disabled. Kanban: a new run ended as `reclaimed`.
 - **Long rerun.** Waited for 30 minutes at most, then `timeout`, never retried: the command may
-  go on, since Docker offers no call to stop it. One action runs at a time.
+  go on, since Docker offers no call to stop it.
+- **Command output.** Only known verdict lines are kept, never free text, since a command can
+  print a job name that comes from a prompt. The expected lines are in the code, by `verify`.
+- **Total cap.** 7 actions per hour by default.
 - **Docker proxy.** `wollomatic/socket-proxy` with a pinned image. Reading the description of
   the container is not allowed unless it proves necessary. **Remaining risk:** path rules cannot
   limit the start of an `exec` to the Hermes container.
 
+### With the buttons
+
+- **NURSE present.** NURSE refreshes the summary of its catalogue every 30 s, also during a long
+  action. When it is missing or older than 2 minutes, no button is shown.
+- **Spacing of restarts.** The page shows the 120 s between two restarts with a
+  **countdown** until a restart may be asked again. NURSE stays the one that decides.
+
 ## Open points
 
-- **Kanban board.** A task of another board needs the board to be selected.
-- **Profiles.** How a job of another profile is targeted.
+- **Kanban boards.** How to act on another board than the default one.
+- **Profiles.** How a job of another profile is targeted, to act beyond the main profile.
 - **Coverage.** Which [conditions without a repair or without a rule](../hermes/coverage.md)
   need one.
