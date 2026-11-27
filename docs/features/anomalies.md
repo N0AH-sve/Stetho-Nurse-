@@ -2,7 +2,7 @@
 
 > Status: the anomaly codes, their model, grouping, texts, reading retries and end are
 > implemented, as well as the log of the [probe](probe.md#probe). So far, only the
-> [`gateway` module](gateway.md) and the probe raise anomalies. No program starts them yet.
+> [`gateway` module](gateway.md) and the probe raise anomalies. Anomalies are not served yet.
 
 ## Purpose
 

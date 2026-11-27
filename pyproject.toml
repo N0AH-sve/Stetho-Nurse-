@@ -5,6 +5,8 @@ description = "Monitoring for Hermes: STETHO and NURSE."
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "pyyaml>=6.0.3",
+    "starlette>=1.10.0",
+    "uvicorn>=0.54.0",
 ]
 
 [dependency-groups]

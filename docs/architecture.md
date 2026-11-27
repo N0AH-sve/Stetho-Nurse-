@@ -1,8 +1,8 @@
 # Architecture
 
-> Target architecture. Only these parts of the STETHO core are implemented: settings,
-> translations, statuses, the result format of the sensors, the anomaly model, the
-> probe and the `gateway` module without its card.
+> Target architecture. Only these parts of STETHO are implemented: the core, the `gateway`
+> module without its card, and a protected web server that serves `/health`. NURSE does not
+> exist yet.
 
 ## Goal
 

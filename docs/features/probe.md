@@ -1,7 +1,7 @@
 # Probe and modules
 
-> Status: statuses, the result format and the probe are implemented. No program starts the probe
-> yet. Version adapters are to be completed.
+> Status: statuses, the result format and the probe are implemented. The STETHO program runs the
+> probe. Version adapters are to be completed.
 
 ## Purpose
 

@@ -9,14 +9,46 @@ How an installation is described without changing the code.
 ## STETHO settings
 
 [`stetho.example.yaml`](../../config/stetho.example.yaml) lists every setting, with comments.
-`stetho/config.py` reads the file and checks all of it before anything else starts. Nothing
-calls it yet: the STETHO program does not exist.
+`stetho/config.py` reads the file and checks all of it before anything else starts.
+
+STETHO is started with the path of this file, which has no default:
+
+```bash
+uv run python -m stetho --config config/stetho.yaml
+```
+
+The log goes to the error output. STETHO does not start, with exit code 2, when the settings, the
+translations or the rules are invalid, when it cannot listen on the host and port, or after any
+other error found before serving.
+
+| End | Exit code |
+| --- | --- |
+| `SIGINT` or `SIGTERM`, at the startup or while serving, then a normal stop | 0 |
+| The web server cannot run, or the startup or shutdown of STETHO fails | 1 |
+| STETHO does not start (see above) | 2 |
+
+A stop waits at most 5 seconds for a reading in progress, whatever the sensor time limit: a
+stuck sensor does not hold it. **Limit:** a signal received while Python is still loading the
+program, before STETHO runs, is not handled this way.
+
+In the failures, the log gives the error type and the calls in STETHO, never a message or a
+traceback. Errors that nothing catches, in a thread for example, are written the same way. The
+web server is given all its settings, so that it reads no environment variable.
 
 - **Required.** Every setting of the example must be present. Only `language` (`en`) and the
   [gateway thresholds](gateway.md#thresholds) may be left out. No other value is assumed.
 - **Empty secrets.** `auth.password` and `alerts.discord.webhook_url` must be present but may be
   empty. An empty password means that the reverse proxy handles authentication.
+- **Password.** Empty, or at least 16 characters; characters are counted, not bytes.
+- **Host names.** `server.allowed_hosts` is a non-empty list of distinct names or addresses,
+  without port, wildcard or final dot; IPv6 addresses are between brackets. Case is ignored, and
+  every written form of an IPv6 address is the same.
+- **Characters.** No text may hold a NUL or half of a Unicode surrogate pair.
 - **Numbers.** Ports go from 1 to 65535; durations and counts are whole numbers greater than 0.
+- **Probe durations.** `probe.interval_seconds` and `probe.sensor_timeout_seconds` go from 1 to
+  86400 seconds (24 hours). This is a guard rail against values that would break the probe, not
+  an advised rhythm: the installation chooses it. At startup, the log says what the two settings
+  give.
 - **Paths.** Directories are absolute paths. Whether they exist is not checked at startup: a
   missing source is reported while STETHO runs.
 - **Names.** `hermes.profiles` is `auto` or a list, and `modules.kanban.boards` is `all` or a

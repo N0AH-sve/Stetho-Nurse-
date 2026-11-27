@@ -84,6 +84,97 @@ def test_lists_of_names_are_accepted() -> None:
     assert config.modules.kanban.boards == ("release-board",)
 
 
+@pytest.mark.parametrize(
+    ("hosts", "expected"),
+    [
+        (["localhost"], ("localhost",)),
+        (["Status.Example.COM", "127.0.0.1"], ("status.example.com", "127.0.0.1")),
+        (["[::1]", "[FD00::1]"], ("[::1]", "[fd00::1]")),
+        (["stetho_web"], ("stetho_web",)),
+    ],
+)
+def test_host_names_are_accepted_in_lower_case(hosts: list[str], expected: tuple[str, ...]) -> None:
+    assert parse_config(changed("server.allowed_hosts", hosts)).server.allowed_hosts == expected
+
+
+@pytest.mark.parametrize(
+    "hosts",
+    [
+        [],
+        "localhost",
+        None,
+        [1],
+        [""],
+        ["*"],
+        ["*.example.com"],
+        ["localhost:8090"],
+        ["http://localhost"],
+        ["example.com/path"],
+        ["example.com."],
+        [" localhost"],
+        ["localhost\n"],
+        ["-name"],
+        ["a..b"],
+        ["a" * 64],
+        [".".join(["abcdefg"] * 40)],
+        ["::1"],
+        ["[::1]:80"],
+        ["[not-an-address]"],
+        ["[127.0.0.1]"],
+        ["[fe80::1%eth0]"],
+        ["localhost", "LOCALHOST"],
+    ],
+)
+def test_other_host_names_are_refused(hosts: object) -> None:
+    message = error_of(changed("server.allowed_hosts", hosts))
+
+    assert message.startswith("server.allowed_hosts: expected")
+
+
+@pytest.mark.parametrize("password", ["", "a" * 16, "é" * 16, "with : colons and spaces"])
+def test_empty_or_long_password_is_accepted(password: str) -> None:
+    assert parse_config(changed("auth.password", password)).auth.password.reveal() == password
+
+
+@pytest.mark.parametrize("password", ["a", "a" * 15, "é" * 15])
+def test_short_password_is_refused_without_quoting_it(password: str) -> None:
+    message = error_of(changed("auth.password", password))
+
+    assert message == "auth.password: must be empty or have at least 16 characters"
+
+
+@pytest.mark.parametrize(
+    "path", ["server.host", "auth.password", "hermes.data_dir", "alerts.discord.webhook_url"]
+)
+@pytest.mark.parametrize("bad", ["\0", "\udcff"])
+def test_unusable_character_is_refused_without_quoting(path: str, bad: str) -> None:
+    message = error_of(changed(path, f"/{MARKER}-long-enough{bad}"))
+
+    assert message == f"{path}: holds a character that cannot be used"
+
+
+def test_same_address_written_twice_is_refused() -> None:
+    document = changed("server.allowed_hosts", ["[::1]", "[0:0:0:0:0:0:0:1]"])
+
+    assert error_of(document) == "server.allowed_hosts: the same address is given twice"
+
+
+@pytest.mark.parametrize("name", ["interval_seconds", "sensor_timeout_seconds"])
+@pytest.mark.parametrize("value", [1, 86400])
+def test_probe_duration_within_a_day_is_accepted(name: str, value: int) -> None:
+    config = parse_config(changed(f"probe.{name}", value))
+
+    assert getattr(config.probe, name) == value
+
+
+@pytest.mark.parametrize("name", ["interval_seconds", "sensor_timeout_seconds"])
+@pytest.mark.parametrize("value", [0, 86401, 10**12])
+def test_probe_duration_outside_a_day_is_refused(name: str, value: int) -> None:
+    assert error_of(changed(f"probe.{name}", value)) == (
+        f"probe.{name}: expected a whole number from 1 to 86400"
+    )
+
+
 def test_gateway_thresholds_may_be_changed() -> None:
     document = changed("modules.gateway.overrides", {"down_after_minutes": 10})
 
@@ -159,6 +250,7 @@ def test_invalid_value_is_refused_and_named(path: str, value: object) -> None:
         "timezone",
         "server",
         "auth.password",
+        "server.allowed_hosts",
         "probe.interval_seconds",
         "paths.state_dir",
         "hermes.profile_labels",

@@ -1,6 +1,7 @@
 # HTTP API
 
-> Status: the contract is written. Nothing is served yet.
+> Status: the contract is written. The server, its protections and `/health` are implemented.
+> The other routes are not served yet.
 
 ## Purpose
 
@@ -14,7 +15,7 @@ Schemas of the files exchanged with NURSE (`Prescription`, `PrescriptionResult`)
 
 | Route | Role | Served |
 | --- | --- | --- |
-| `GET /health` | The server answers; says nothing about Hermes. No password | Planned in this step |
+| `GET /health` | The server answers; says nothing about Hermes. No password | Yes |
 | `GET /api/v1/status` | Overall state and every sensor | Planned in this step |
 | `GET /api/v1/sensors/{sensor_id}` | One sensor | Planned in this step |
 | `GET /api/v1/anomalies` | Current anomalies with the time of their reading, filtered by module and code | Planned in this step |
@@ -69,30 +70,68 @@ Described now, served later.
 
 ## Security
 
-Decided, and not implemented yet.
+`stetho/web/guard.py` surrounds the whole application, so that a new route is protected by
+default. It checks, in this order:
 
-- **Password.** When `auth.password` is set, HTTP Basic protects everything but `/health`,
-  styles and scripts included. The user name is ignored and the password is compared in constant
-  time. It must have at least 16 characters. Failures are logged without their content. There is
-  no lockout, so attempts are not slowed down.
+1. **Protocol.** HTTP only. WebSockets are off, since they would skip checks written for HTTP.
+2. **Host name**, on every route, `/health` included. The `Host` header, without its port and
+   in any case, must be one of `server.allowed_hosts`. This protects against DNS rebinding.
+   A missing or repeated header is refused with 400.
+3. **Password**, when `auth.password` is set, on everything but `/health`: styles, scripts and
+   unknown addresses included, so that the routes are not revealed. HTTP Basic, realm `STETHO`,
+   UTF-8. The user name is ignored. Digests of the passwords are compared in constant time. A
+   missing, repeated or malformed header and a wrong password get the same 401.
+4. **Method.** `GET` and `HEAD` only; any other gets 405, `OPTIONS` included.
+
+There is no redirection for a trailing slash.
+
 - **No password.** Accepted, with a warning at startup: the reverse proxy then authenticates, and
-  whoever reaches the port has access.
-- **Host names.** A setting, `server.allowed_hosts`, lists the accepted ones, against DNS
-  rebinding. Any other is refused on every route.
-- **HTTP protections.** Strict content security policy with resources of STETHO only, no
-  framing, `nosniff`, no referrer, `no-store` and no CORS. `X-Forwarded-*` headers are ignored.
-  The access log is off. An internal error shows no trace and no message, in responses or logs.
-- **CSRF** (with the actions). A token signed with a random key made at startup, valid for 12
-  hours, sent in `X-CSRF-Token`. The submission accepts JSON only and refuses a request that the
-  browser reports as coming from another site. The token is not tied to a person and ends when
-  STETHO restarts.
+  whoever reaches the port has access. The host check does not replace a password: a program that
+  reaches the port can send any host name.
+- **Headers**, on every response of the application, errors included, and no route can weaken
+  them:
+  `Content-Security-Policy: default-src 'none'; style-src 'self'; script-src 'self';
+  connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none';
+  frame-ancestors 'none'`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer`, `Cache-Control: no-store`,
+  `Cross-Origin-Resource-Policy: same-origin` and `Cross-Origin-Opener-Policy: same-origin`.
+  CORS headers are removed. No header names the server software.
+- **Proxy.** `X-Forwarded-*` headers are ignored.
+- **Log.** Accesses are not logged. A failed authentication writes one line, without user name,
+  password, address or path; a request without credentials writes nothing. **Limits:** attempts
+  are not slowed down or blocked, their origin is unknown, and many of them fill the log.
+- **Errors.** An unexpected error answers 500 without detail. The log keeps its type and its
+  calls in STETHO. For the messages of other libraries, such as the web server, only their origin
+  and level are written, and no traceback is ever written. This can make a failure of the web
+  server harder to understand; a port that cannot be opened has its own message.
+- **Limit.** A request that is not valid HTTP, such as an HTTP/1.1 request without a `Host` header
+  or with two, is answered by the web server itself, before these checks: that response has no
+  security header and is not in the error format. It names no software and repeats nothing of the
+  request.
+- **Limit.** Anyone who reaches the port can fill the log without a password: an invalid request,
+  or one that asks for another protocol, writes a line of the web server, without its message.
+- **Connections.** STETHO bounds neither the number of connections nor the time to send the
+  headers of a request, and this is accepted: 3 or 4 users at most are expected, on one account.
+  A limit of that size would be wrong, since one browser opens several connections. **Limit:**
+  this holds only if nobody else reaches the port. Many idle connections, even without a
+  password, could use up the files the process may open, which the sensors need too. The port
+  must stay bound to `127.0.0.1`, behind the reverse proxy.
+
+**CSRF** (with the actions, not implemented). A token signed with a random key made at startup,
+valid for 12 hours, sent in `X-CSRF-Token`. The submission accepts JSON only and refuses a
+request that the browser reports as coming from another site. The token is not tied to a person
+and ends when STETHO restarts.
 
 ## Tests
 
 `tests/stetho/test_openapi.py` checks that the contract is a valid OpenAPI 3.1 document, and
 that its routes, protections, errors, enumerations and patterns match the decisions and the code.
-No response is checked yet. These checks will use `openapi-schema-validator`, which is typed,
-instead of `jsonschema`, which is not.
+`tests/stetho/test_web.py` starts the real server on a local port and checks each protection,
+refusals included; `test_main.py` covers the startup and the log. The tests use the standard
+library as HTTP client: the test client of Starlette now asks for `httpx2`.
+
+Only the format of the error responses is checked against the contract. Full conformance checks
+will use `openapi-schema-validator`, which is typed, instead of `jsonschema`, which is not.
 
 ## Open points
 
