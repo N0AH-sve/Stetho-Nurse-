@@ -353,6 +353,8 @@ def with_state(**changes: object) -> bytes:
 )
 def test_an_unusable_state_refuses_everything_and_is_kept(tmp_path: Path, content: bytes) -> None:
     service = reception(tmp_path, allow)
+    service.recover()
+    (tmp_path / "results" / "_log.json").unlink()
     (tmp_path / "log" / "state.json").write_bytes(content)
     drop(tmp_path, request())
 
@@ -1042,6 +1044,7 @@ def test_without_a_state_old_refusals_still_go_and_nothing_else(
 ) -> None:
     monkeypatch.setattr(records, "MAX_RESULTS", 5)
     service = reception(tmp_path, allow)
+    (tmp_path / "log" / "started.json").write_text("{}")
     (tmp_path / "log" / "state.json").write_bytes(b"{")
     kept = tmp_path / "results" / "action.json"
     kept.write_text(json.dumps(answer("done", rx_id="action")))
@@ -1286,3 +1289,71 @@ def test_recovery_goes_on_when_only_the_public_log_fails(tmp_path: Path) -> None
     reception(tmp_path).recover()
 
     assert load_state(tmp_path / "log").pending == {}
+
+
+def running_with_an_action(tmp_path: Path) -> Reception:
+    """A NURSE that started with one pending action and has no result for it yet."""
+    interrupted(tmp_path)
+    return reception(tmp_path, allow)
+
+
+@pytest.mark.parametrize("pending", [True, False])
+def test_unusable_state_never_answers_for_an_action(tmp_path: Path, pending: bool) -> None:
+    service = running_with_an_action(tmp_path)
+    if not pending:
+        service.recover()
+        (tmp_path / "results" / "rx-1.json").unlink()
+    (tmp_path / "log" / "state.json").write_bytes(b"{")
+    drop(tmp_path, request())
+    drop(tmp_path, request("other"), "other.json")
+
+    service.run_once()
+
+    assert not (tmp_path / "results" / "rx-1.json").exists()
+    assert result(tmp_path, "other")["refusal_reason"] == "state_unreadable"
+    assert [line["result"]["rx_id"] for line in journal(tmp_path)] == ["other", "rx-1"]
+    assert list((tmp_path / "prescriptions").iterdir()) == []
+
+
+@pytest.mark.parametrize("damage", [None, b"{", b"null", b'{"../x": 1}'])
+def test_nothing_is_written_when_the_actions_cannot_be_known(
+    tmp_path: Path, damage: bytes | None
+) -> None:
+    service = running_with_an_action(tmp_path)
+    (tmp_path / "log" / "state.json").write_bytes(b"{")
+    if damage is None:
+        (tmp_path / "log" / "started.json").unlink()
+    else:
+        (tmp_path / "log" / "started.json").write_bytes(damage)
+    drop(tmp_path, request("other"), "other.json")
+
+    service.run_once()
+
+    assert list((tmp_path / "results").iterdir()) == []
+    assert [line["result"]["rx_id"] for line in journal(tmp_path)] == ["other"]
+
+
+def test_full_state_never_answers_for_an_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service = running_with_an_action(tmp_path)
+    monkeypatch.setattr("nurse.reception.MAX_HANDLED", 1)
+    monkeypatch.setattr(records, "HANDLED_SECONDS", 10**9)
+    drop(tmp_path, request())
+    drop(tmp_path, request("other"), "other.json")
+
+    service.run_once()
+
+    assert not (tmp_path / "results" / "rx-1.json").exists()
+    assert result(tmp_path, "other")["refusal_reason"] == "state_unreadable"
+
+
+def test_start_creates_the_identifiers_once(tmp_path: Path) -> None:
+    reception(tmp_path).recover()
+    path = tmp_path / "log" / "started.json"
+    assert path.read_text() == "{}"
+    path.write_text(json.dumps({"a": EPOCH}))
+
+    reception(tmp_path).recover()
+
+    assert json.loads(path.read_text()) == {"a": EPOCH}

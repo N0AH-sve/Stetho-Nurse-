@@ -215,6 +215,31 @@ def _read_json(log_dir: Path, name: str) -> object:
         raise StateError from None
 
 
+def _parse_started(document: object) -> dict[str, int]:
+    if not isinstance(document, dict) or not all(
+        _is_identifier(rx_id) and _is_time(at) for rx_id, at in document.items()
+    ):
+        raise StateError
+    return dict(document)
+
+
+def load_started(log_dir: Path) -> frozenset[str]:
+    """The identifiers of the actions, read apart from the state.
+
+    A missing file raises `StateError` too: NURSE creates it when it starts, so it was lost.
+    """
+    document = _read_json(log_dir, STARTED_NAME)
+    if document is _MISSING:
+        raise StateError
+    return frozenset(_parse_started(document))
+
+
+def create_started(log_dir: Path, state: State) -> None:
+    """Writes the identifiers if the file is not there yet, so that its loss can be told."""
+    if _read_json(log_dir, STARTED_NAME) is _MISSING:
+        _write_atomically(log_dir / STARTED_NAME, state.started, 0o600)
+
+
 def load_state(log_dir: Path) -> State:
     """Missing files are a first start. Any other doubt raises `StateError`."""
     document = _read_json(log_dir, STATE_NAME)
@@ -224,12 +249,8 @@ def load_state(log_dir: Path) -> State:
         # Losing the identifiers of actions that the state still knows is not a first start.
         if state.pending or state.actions:
             raise StateError
-    elif not isinstance(started, dict) or not all(
-        _is_identifier(rx_id) and _is_time(at) for rx_id, at in started.items()
-    ):
-        raise StateError
     else:
-        state.started = dict(started)
+        state.started = _parse_started(started)
     return state
 
 

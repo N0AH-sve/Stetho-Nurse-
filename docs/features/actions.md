@@ -202,8 +202,11 @@ leaves the requests waiting.
 - **NURSE does not start with an unusable state:** it could not tell what was interrupted. It
   says so in its logs, and no request is answered until the state is repaired. A state that
   becomes unusable while NURSE runs refuses everything.
-- **Not settled, before any action runs:** that refusal can be written as the result of an action
-  that has none yet, or no longer has one.
+- **Such a refusal never answers for an action.** The identifiers of the actions are then read
+  apart, from `started.json`: their requests are journaled and deleted without any result file.
+  If that file cannot be read either, or is missing, no result file is written at all: NURSE
+  creates it when it starts. The same protection applies when too many identifiers are
+  remembered. **Limit:** such requests get no answer on the page.
 - **Not settled:** with `started.json` present and `state.json` lost, NURSE takes it for a first
   start: the pending actions are not answered and the limits start again.
 - A request whose action could not be recorded as started is later a `duplicate`, without result
