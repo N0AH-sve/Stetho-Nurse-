@@ -29,6 +29,7 @@ LOG_REFUSALS = 20
 JOURNAL_BYTES = 1024 * 1024
 JOURNAL_FILES = 5
 _MAX_STATE_BYTES = 4 * 1024 * 1024
+_MAX_RESULT_BYTES = 64 * 1024
 STATE_NAME = "state.json"
 JOURNAL_NAME = "journal.jsonl"  # the refused requests
 ACTIONS_NAME = "actions.jsonl"  # the started actions: refusals never reach this journal
@@ -36,6 +37,22 @@ ACTIONS_NAME = "actions.jsonl"  # the started actions: refusals never reach this
 LOG_NAME = "_log.json"
 _TEMPORARY = ".tmp-"
 LOCK_NAME = "lock"
+
+# The statuses that end a started action, and the fields of a result, as in the API.
+ENDED = frozenset({"done", "failed", "timeout", "unexpected", "unverified"})
+_RESULT_FIELDS = frozenset(
+    {
+        "rx_id",
+        "status",
+        "refusal_reason",
+        "exit_code",
+        "output_excerpt",
+        "anomaly",
+        "started_at",
+        "finished_at",
+        "verified",
+    }
+)
 
 # The same pattern as `PrescriptionId` in the API. An identifier becomes a file name.
 RX_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_:.-]{0,63}")
@@ -93,23 +110,38 @@ def _is_time(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def _are_entries(value: object) -> bool:
-    return isinstance(value, list) and all(
-        isinstance(item, dict)
-        and set(item) == {"prescription", "result"}
-        and isinstance(item["result"], dict)
-        for item in value
+def _is_identifier(value: object) -> bool:
+    return isinstance(value, str) and RX_ID.fullmatch(value) is not None
+
+
+def _is_entry(item: object) -> bool:
+    if not isinstance(item, dict) or set(item) != {"prescription", "result"}:
+        return False
+    prescription, result = item["prescription"], item["result"]
+    return (
+        (prescription is None or isinstance(prescription, dict))
+        and isinstance(result, dict)
+        and _is_identifier(result.get("rx_id"))
+        and isinstance(result.get("status"), str)
+        and isinstance(result.get("finished_at"), str)
     )
+
+
+def _are_entries(value: object) -> bool:
+    return isinstance(value, list) and all(_is_entry(item) for item in value)
 
 
 def _is_pending(rx_id: str, item: object) -> bool:
-    return (
-        RX_ID.fullmatch(rx_id) is not None
-        and isinstance(item, dict)
-        and set(item) == {"prescription", "started_at"}
-        and isinstance(item["prescription"], dict)
-        and isinstance(item["started_at"], str)
-    )
+    if not _is_identifier(rx_id) or not isinstance(item, dict):
+        return False
+    if set(item) != {"prescription", "started_at"} or not isinstance(item["started_at"], str):
+        return False
+    prescription = item["prescription"]
+    return isinstance(prescription, dict) and prescription.get("rx_id") == rx_id
+
+
+def _no_constant(_value: str) -> object:
+    raise ValueError("not a JSON number")
 
 
 def _parse_state(document: object) -> State:
@@ -155,7 +187,7 @@ def load_state(log_dir: Path) -> State:
     if len(content) > _MAX_STATE_BYTES:
         raise StateError
     try:
-        document = json.loads(content)
+        document = json.loads(content, parse_constant=_no_constant)
     except (ValueError, RecursionError):
         raise StateError from None
     return _parse_state(document)
@@ -217,7 +249,9 @@ def save_state(log_dir: Path, state: State) -> None:
     _write_atomically(log_dir / STATE_NAME, document, 0o600)
 
 
-def append_journal(log_dir: Path, entry: Entry, name: str = JOURNAL_NAME) -> None:
+def append_journal(
+    log_dir: Path, entry: Entry, name: str = JOURNAL_NAME, durable: bool = False
+) -> None:
     """A private journal: one line per entry, in a few files of limited size."""
     line = json.dumps(entry, ensure_ascii=True, allow_nan=False) + "\n"
     journal = log_dir / name
@@ -230,9 +264,33 @@ def append_journal(log_dir: Path, entry: Entry, name: str = JOURNAL_NAME) -> Non
             older = log_dir / (f"{name}.{number - 1}" if number > 1 else name)
             if older.exists():
                 older.replace(log_dir / f"{name}.{number}")
-    descriptor = os.open(journal, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-    with os.fdopen(descriptor, "a", encoding="utf-8") as stream:
-        stream.write(line)
+    descriptor = os.open(journal, os.O_RDWR | os.O_APPEND | os.O_CREAT, 0o600)
+    with os.fdopen(descriptor, "a+b") as stream:
+        end = stream.seek(0, os.SEEK_END)
+        # A line cut short, by a full disk, must not swallow the next one.
+        if end and os.pread(stream.fileno(), 1, end - 1) != b"\n":
+            stream.write(b"\n")
+        stream.write(line.encode("ascii"))
+        stream.flush()
+        if durable:
+            os.fsync(stream.fileno())
+    if durable:
+        _sync_folder(log_dir)
+
+
+def _is_last_line(log_dir: Path, name: str, rx_id: str) -> bool:
+    """Whether the journal already ends with the answer to this identifier."""
+    try:
+        with (log_dir / name).open("rb") as stream:
+            end = stream.seek(0, os.SEEK_END)
+            stream.seek(max(0, end - JOURNAL_BYTES))
+            lines = stream.read().splitlines()
+    except FileNotFoundError:
+        return False
+    try:
+        return bool(lines) and bool(json.loads(lines[-1])["result"]["rx_id"] == rx_id)
+    except (ValueError, RecursionError, KeyError, TypeError):
+        return False
 
 
 def result_path(results_dir: Path, rx_id: str) -> Path:
@@ -249,14 +307,37 @@ def write_log(results_dir: Path, entries: Iterable[Entry]) -> None:
     _write_atomically(results_dir / LOG_NAME, list(entries), 0o640)
 
 
-def prune_results(results_dir: Path, now: float, actions: frozenset[str] = frozenset()) -> None:
+def _read_result(path: Path) -> Entry | None:
+    try:
+        with path.open("rb") as stream:
+            result = json.loads(stream.read(_MAX_RESULT_BYTES), parse_constant=_no_constant)
+    except (FileNotFoundError, ValueError, RecursionError):
+        return None
+    return result if isinstance(result, dict) else None
+
+
+def _is_refusal(path: Path) -> bool:
+    try:
+        result = _read_result(path)
+    except OSError:
+        return False
+    return result is not None and result.get("status") == "refused"
+
+
+def prune_results(
+    results_dir: Path, now: float, actions: frozenset[str] | None = frozenset()
+) -> None:
     """Removes old results, and the oldest ones above the limit.
 
     The results of the started `actions` do not count in the limit: refusals cannot push them out.
+    When the actions are unknown (`None`), only the results that say they are refusals are
+    removed, so that a flood cannot fill the disk.
     """
     found = []
     for path in results_dir.iterdir():
         if path.name == LOG_NAME or path.suffix != ".json" or path.name.startswith("."):
+            continue
+        if actions is None and not _is_refusal(path):
             continue
         try:
             found.append((path.lstat().st_mtime, path.name, path))
@@ -265,7 +346,7 @@ def prune_results(results_dir: Path, now: float, actions: frozenset[str] = froze
     found.sort(reverse=True)
     others = 0
     for written, _, path in found:
-        started = path.stem in actions
+        started = actions is not None and path.stem in actions
         others += not started
         if now - written > RESULT_SECONDS or (not started and others > MAX_RESULTS):
             path.unlink(missing_ok=True)
@@ -285,11 +366,16 @@ def start_action(
 
 
 def finish_action(log_dir: Path, results_dir: Path, state: State, result: Entry) -> None:
-    """Answers a started action. It stays pending until everything is written."""
+    """Answers a started action. It stays pending until everything is written.
+
+    The answer comes first: after an interruption, it is the one that is kept.
+    """
     rx_id = result["rx_id"]
     entry = {"prescription": state.pending[rx_id]["prescription"], "result": result}
-    append_journal(log_dir, entry, ACTIONS_NAME)
     write_result(results_dir, result)
+    # Not twice when a later step failed and NURSE ends the same action again.
+    if not _is_last_line(log_dir, ACTIONS_NAME, rx_id):
+        append_journal(log_dir, entry, ACTIONS_NAME, durable=True)
     saved = state.copy()
     del saved.pending[rx_id]
     saved.actions = [entry, *saved.actions][:LOG_ACTIONS]
@@ -299,15 +385,18 @@ def finish_action(log_dir: Path, results_dir: Path, state: State, result: Entry)
 
 
 def _written_answer(results_dir: Path, rx_id: str) -> Entry | None:
-    """The answer to a started action, if it was written before the interruption."""
-    try:
-        with result_path(results_dir, rx_id).open("rb") as stream:
-            result = json.loads(stream.read(_MAX_STATE_BYTES))
-    except (FileNotFoundError, ValueError, RecursionError):
+    """The complete answer to a started action, if it was written before the interruption."""
+    result = _read_result(result_path(results_dir, rx_id))
+    if (
+        result is None
+        or set(result) != _RESULT_FIELDS
+        or result["rx_id"] != rx_id
+        or not isinstance(result["status"], str)
+        or result["status"] not in ENDED
+        or not isinstance(result["finished_at"], str)
+    ):
         return None
-    if isinstance(result, dict) and result.get("rx_id") == rx_id:
-        return result if result.get("status") not in ("queued", "refused") else None
-    return None
+    return result
 
 
 def recover_actions(log_dir: Path, results_dir: Path, state: State, now: str) -> list[str]:
@@ -329,4 +418,6 @@ def recover_actions(log_dir: Path, results_dir: Path, state: State, now: str) ->
             "verified": False,
         }
         finish_action(log_dir, results_dir, state, result)
+    # The interruption may also have come just before the public log.
+    write_log(results_dir, state.log())
     return recovered

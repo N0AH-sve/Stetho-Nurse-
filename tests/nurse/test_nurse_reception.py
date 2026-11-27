@@ -32,6 +32,21 @@ NOW = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
 EPOCH = int(NOW.timestamp())
 
 
+def answer(status: object, **changes: object) -> dict[str, object]:
+    document: dict[str, object] = {
+        "rx_id": "rx-1",
+        "status": status,
+        "refusal_reason": None,
+        "exit_code": 0,
+        "output_excerpt": None,
+        "anomaly": None,
+        "started_at": "2026-01-15T11:59:00Z",
+        "finished_at": "2026-01-15T11:59:30Z",
+        "verified": True,
+    }
+    return {**document, **changes}
+
+
 def settings(tmp_path: Path) -> Settings:
     for name in ("prescriptions", "results", "log"):
         (tmp_path / name).mkdir(exist_ok=True)
@@ -320,6 +335,15 @@ def with_state(**changes: object) -> bytes:
         with_state(launches={}),
         with_state(recent=[1]),
         with_state(actions=[{"prescription": None, "result": 1}]),
+        with_state(actions=[{"prescription": None, "result": {}}]),
+        with_state(actions=[{"prescription": None, "result": answer("done", rx_id=[])}]),
+        with_state(recent=[{"prescription": 1, "result": answer("refused")}]),
+        with_state(recent=[{"prescription": None, "result": answer("refused", rx_id="../x")}]),
+        with_state(pending={"a": {"prescription": 1, "started_at": "x"}}),
+        with_state(pending={"a": {"prescription": {"rx_id": "b"}, "started_at": "x"}}),
+        with_state(
+            pending={"a": {"prescription": {"rx_id": "a", "n": float("nan")}, "started_at": "x"}}
+        ),
         with_state(pending=[]),
         with_state(pending={"../x": {"prescription": {}, "started_at": "x"}}),
         with_state(pending={"a": {"prescription": {}}}),
@@ -695,12 +719,21 @@ def test_full_state_refuses_and_stays_loadable(
 
 
 def test_largest_state_can_be_loaded_again(tmp_path: Path) -> None:
-    handled = {f"{number:064}": EPOCH for number in range(records.MAX_HANDLED)}
-    largest = {"prescription": {"requested_by": "\U0001f600" * 64}, "result": {"rx_id": "a" * 64}}
-    state = State(handled, [], [largest] * records.LOG_REFUSALS, [largest] * records.LOG_ACTIONS)
+    longest, wide = "a" * 64, "\U0001f600"
+    prescription = {**request(longest), "requested_by": wide * 64, "target": "a" * 64}
+    result = answer("unverified", rx_id=longest, output_excerpt=wide * 2048)
+    ended = {"prescription": prescription, "result": result}
+    refusal = {"prescription": prescription, "result": answer("refused", rx_id=longest)}
+    state = State(
+        {f"{number:064}": EPOCH for number in range(records.MAX_HANDLED)},
+        [Launch(EPOCH, "A" * 64, "manual", False)] * 100,
+        [refusal] * records.LOG_REFUSALS,
+        [ended] * records.LOG_ACTIONS,
+        {longest: {"prescription": prescription, "started_at": STARTED}},
+    )
     records.save_state(tmp_path, state)
 
-    assert len(load_state(tmp_path).handled) == records.MAX_HANDLED
+    assert load_state(tmp_path) == state
 
 
 def test_unusable_state_is_reported_once(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
@@ -806,10 +839,14 @@ def test_interrupted_action_is_unverified_and_never_run_again(tmp_path: Path) ->
 @pytest.mark.parametrize(
     ("written", "expected"),
     [
-        ({"rx_id": "rx-1", "status": "done"}, "done"),
-        ({"rx_id": "rx-1", "status": "refused"}, "unverified"),
-        ({"rx_id": "rx-1", "status": "queued"}, "unverified"),
-        ({"rx_id": "other", "status": "done"}, "unverified"),
+        (answer("done"), "done"),
+        (answer("refused"), "unverified"),
+        (answer("queued"), "unverified"),
+        (answer("done", rx_id="other"), "unverified"),
+        (answer(["done"]), "unverified"),
+        (answer("done", finished_at=None), "unverified"),
+        ({"rx_id": "rx-1", "status": "done"}, "unverified"),
+        ({"rx_id": "rx-1"}, "unverified"),
         ([], "unverified"),
     ],
 )
@@ -927,3 +964,135 @@ def test_program_does_not_start_when_it_cannot_clean(
     assert program.main(["--config", "unused"]) == 2
     assert "IsADirectoryError" in caplog.text
     assert str(tmp_path) not in caplog.text
+
+
+def test_without_a_state_old_refusals_still_go_and_nothing_else(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(records, "MAX_RESULTS", 5)
+    service = reception(tmp_path, allow)
+    (tmp_path / "log" / "state.json").write_bytes(b"{")
+    kept = tmp_path / "results" / "action.json"
+    kept.write_text(json.dumps(answer("done", rx_id="action")))
+    (tmp_path / "results" / "damaged.json").write_text("{")
+    old = old_result(tmp_path, "old.json")
+    old.write_text(json.dumps(answer("refused", rx_id="old")))
+    os.utime(old, (EPOCH - 8 * 86400,) * 2)
+    for number in range(40):
+        drop(tmp_path, request(f"f{number:02}"), f"f{number:02}.json")
+
+    while service.run_once():
+        pass
+
+    names = {path.name for path in (tmp_path / "results").iterdir()}
+    assert {"action.json", "damaged.json"} < names
+    assert "old.json" not in names
+    assert len(names) == 5 + 2
+
+
+@pytest.mark.parametrize("step", ["write_result", "append_journal", "save_state", "write_log"])
+def test_action_survives_a_failure_at_each_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, step: str
+) -> None:
+    interrupted(tmp_path)
+
+    def broken(*_: object, **__: object) -> None:
+        raise PermissionError
+
+    monkeypatch.setattr(records, step, broken)
+    for _ in range(3):  # every restart fails the same way
+        with pytest.raises(PermissionError):
+            reception(tmp_path).recover()
+    monkeypatch.undo()
+
+    reception(tmp_path).recover()
+
+    state = load_state(tmp_path / "log")
+    assert (state.pending, len(state.actions)) == ({}, 1)
+    assert result(tmp_path) == state.actions[0]["result"]
+    assert log(tmp_path) == state.actions
+    lines = (tmp_path / "log" / "actions.jsonl").read_text().splitlines()
+    assert [json.loads(line) for line in lines] == state.actions
+
+
+def test_actions_journal_is_synced_before_the_action_stops_being_pending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    interrupted(tmp_path)
+    order: list[str] = []
+    append, save = records.append_journal, records.save_state
+
+    def appended(*args: Any, **kwargs: Any) -> None:
+        order.append(f"journal durable={kwargs.get('durable')}")
+        append(*args, **kwargs)
+
+    def saved(log_dir: Path, state: State) -> None:
+        order.append("state")
+        save(log_dir, state)
+
+    monkeypatch.setattr(records, "append_journal", appended)
+    monkeypatch.setattr(records, "save_state", saved)
+
+    reception(tmp_path).recover()
+
+    assert order == ["journal durable=True", "state"]
+
+
+def test_a_cut_line_does_not_swallow_the_next_one(tmp_path: Path) -> None:
+    (tmp_path / "journal.jsonl").write_text('{"cut')
+
+    records.append_journal(tmp_path, {"prescription": None, "result": {}})
+
+    assert (tmp_path / "journal.jsonl").read_text().splitlines()[1].startswith('{"prescription"')
+
+
+@pytest.mark.parametrize("pending", [True, False])
+def test_identifier_of_a_known_action_gets_no_other_answer(tmp_path: Path, pending: bool) -> None:
+    interrupted(tmp_path)
+    service = reception(tmp_path, allow, clock=lambda: NOW)
+    if not pending:
+        service.recover()
+        (tmp_path / "results" / "rx-1.json").unlink()
+    state = load_state(tmp_path / "log")
+    state.handled.clear()  # long forgotten
+    records.save_state(tmp_path / "log", state)
+    drop(tmp_path, request())
+
+    service.run_once()
+
+    assert not (tmp_path / "results" / "rx-1.json").exists()
+    assert "duplicate" in [entry["result"]["refusal_reason"] for entry in log(tmp_path)]
+
+
+def test_result_of_a_pending_action_does_not_count_in_the_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(records, "MAX_RESULTS", 0)
+    interrupted(tmp_path)
+    (tmp_path / "results" / "rx-1.json").write_text(json.dumps(answer("done")))
+
+    reception(tmp_path, allow).run_once()
+
+    assert (tmp_path / "results" / "rx-1.json").exists()
+
+
+def test_result_of_an_action_goes_after_7_days(tmp_path: Path) -> None:
+    path = tmp_path / "rx-1.json"
+    path.write_text("{}")
+    os.utime(path, (EPOCH - 8 * 86400,) * 2)
+
+    records.prune_results(tmp_path, EPOCH, frozenset({"rx-1"}))
+
+    assert not path.exists()
+
+
+def test_only_the_last_80_actions_stay_in_the_state(tmp_path: Path) -> None:
+    reception(tmp_path)
+    state = State()
+    for number in range(85):
+        rx_id = f"a{number}"
+        records.start_action(tmp_path / "log", state, request(rx_id), LAUNCH, STARTED)
+        done = answer("done", rx_id=rx_id)
+        records.finish_action(tmp_path / "log", tmp_path / "results", state, done)
+
+    assert len(load_state(tmp_path / "log").actions) == 80

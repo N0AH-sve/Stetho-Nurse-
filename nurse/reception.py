@@ -204,11 +204,8 @@ class Reception:
         now = self._clock()
         if handled or self._pruned_at is None or abs(now - self._pruned_at) >= _PRUNE_EVERY:
             state = self._load()
-            # Without a state, the actions are unknown: no result is then removed.
-            if state is not None:
-                started = {entry["result"]["rx_id"] for entry in state.actions}
-                started.update(state.pending)
-                prune_results(self._settings.results_dir, now.timestamp(), frozenset(started))
+            started = None if state is None else _started(state)
+            prune_results(self._settings.results_dir, now.timestamp(), started)
             self._pruned_at = now
 
     def _waiting(self, folder: int) -> list[str]:
@@ -259,8 +256,8 @@ class Reception:
     ) -> None:
         seconds = int(now.timestamp())
         answered = result_path(self._settings.results_dir, rx_id).exists()
-        if state is not None and rx_id in state.pending:
-            answered = True  # its answer is the one of the action
+        if state is not None and rx_id in _started(state):
+            answered = True  # its only answer is the one of the action
         if state is not None:
             state.forget(seconds)
             if len(state.handled) >= MAX_HANDLED:
@@ -313,6 +310,11 @@ class Reception:
             maximum = self._settings.max_actions_per_hour
             reason = limit_reached(state, action, request.origin, maximum, int(now.timestamp()))
         return reason or "execution_disabled"
+
+
+def _started(state: State) -> frozenset[str]:
+    """The identifiers of the actions that NURSE still knows it started."""
+    return frozenset({*state.pending, *(entry["result"]["rx_id"] for entry in state.actions)})
 
 
 def _timestamp(moment: datetime) -> str:

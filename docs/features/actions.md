@@ -180,7 +180,8 @@ a private folder: it holds a lock there, and removes at startup the files left h
 20 000 identifiers to remember, requests are refused with `state_unreadable` until some are
 forgotten: these refusals are neither remembered nor added to `_log.json`. With 1000 files that
 cannot be handled, nothing more is tried, and NURSE logs it. Old results are removed
-even without any request, as long as the prescription folder can be read. When the state or the journal cannot be written,
+even without any request, as long as the prescription folder can be read. With an unusable state, only
+the results that say they are refusals are removed. When the state or the journal cannot be written,
 or a request cannot be deleted, the file is not tried again until NURSE restarts or the file
 goes away. **Limits:** with an unusable state, `_log.json` is not updated. A stopped NURSE
 leaves the requests waiting.
@@ -192,7 +193,18 @@ leaves the requests waiting.
   **Limit:** it can still push other refusals out within seconds.
 - **An action is recorded before it is run,** and stays pending until its answer is written. When
   NURSE starts, a pending action keeps the answer already written, or is answered `unverified`.
-  It is never run again. If this cannot be written, NURSE does not start.
+  It is never run again. If this cannot be written, NURSE does not start. The journal of the
+  actions is synced to disk.
+- A request that reuses the identifier of a pending action, or of one of the last 80, is a
+  `duplicate` and never replaces its result.
+
+**Not settled, before any action runs:**
+
+- **State unreadable at startup.** The pending actions are then not answered until a later start,
+  and a request with the same identifier is answered `state_unreadable`, which the later
+  recovery replaces.
+- **Older actions.** Beyond the last 80, an action is not known any more: its result counts in the
+  limit of 1000, and its identifier can be used again.
 - A request that was only being refused when NURSE stopped is answered `duplicate`: nothing was
   run.
 
