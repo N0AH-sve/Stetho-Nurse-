@@ -8,7 +8,7 @@ import pytest
 
 from nurse import settings as nurse_settings
 from nurse.settings import Action, SettingsError, load_catalogue, load_settings
-from stetho.patterns import ACTION_CODE
+from stetho.patterns import ACTION_CODE, ACTION_TARGET
 
 ROOT = Path(__file__).parents[2]
 SETTINGS = ROOT / "config" / "nurse.example.toml"
@@ -346,8 +346,77 @@ def test_error_never_quotes_a_value(tmp_path: Path, path: str, value: object) ->
     assert MARKER not in catalogue_error(tmp_path, path, value)
 
 
-def test_action_codes_have_the_same_form_as_in_stetho() -> None:
+def test_action_codes_and_targets_have_the_same_form_as_in_stetho() -> None:
     assert nurse_settings.ACTION_CODE.pattern == ACTION_CODE.pattern
+    assert nurse_settings.ACTION_TARGET.pattern == ACTION_TARGET.pattern
+
+
+def entry(code: str, source: str, **changes: object) -> dict[str, Any]:
+    """The example catalogue reduced to one entry: a copy of `source` under another code."""
+    document = tomllib.loads(CATALOGUE.read_text(encoding="utf-8"))
+    return {code: {**document[source], **changes}}
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        entry("RESTART_GATEWAY", "RERUN_JOB", auto=True),
+        entry("RESTART_GATEWAY", "RESTART_CONTAINER", auto=True),
+        entry("RESTART_GATEWAY", "RESTART_GATEWAY", argv=["hermes", "gateway", "stop"]),
+        entry("RESTART_GATEWAY", "RESTART_GATEWAY", argv=["hermes", "gateway", "restart", "-x"]),
+        entry("OTHER", "RESTART_GATEWAY"),
+    ],
+)
+def test_only_the_exact_gateway_restart_may_be_automatic(
+    tmp_path: Path, document: dict[str, Any]
+) -> None:
+    with pytest.raises(SettingsError, match="may not run automatically"):
+        load_catalogue(write(tmp_path, document))
+
+
+def test_another_restart_command_may_be_run_by_hand(tmp_path: Path) -> None:
+    argv = ["hermes", "gateway", "restart", "-x"]
+    document = entry("RESTART_GATEWAY", "RESTART_GATEWAY", argv=argv, auto=False)
+
+    assert load_catalogue(write(tmp_path, document))["RESTART_GATEWAY"].argv == tuple(argv)
+
+
+def test_target_cannot_choose_the_hermes_command(tmp_path: Path) -> None:
+    argv = ["hermes", "{target}"]
+
+    assert "cannot choose" in catalogue_error(tmp_path, "RERUN_JOB.argv", argv)
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["", "--help", "-x", "a b", "a/b", "..", "a;b", "a\n", "a\0", "\u00e9", "a" * 65],
+)
+def test_nurse_limits_every_target_whatever_the_pattern(tmp_path: Path, value: str) -> None:
+    path = write(tmp_path, changed(CATALOGUE, "RERUN_JOB.target.pattern", "(?s).*"))
+    target = load_catalogue(path)["RERUN_JOB"].target
+
+    assert target is not None
+    assert not target.allows(value)
+    assert target.allows("a" * 64)
+
+
+@pytest.mark.parametrize(
+    ("code", "value", "allowed"),
+    [
+        ("RERUN_JOB", "0123456789ab", True),
+        ("RERUN_JOB", "short", False),
+        ("RERUN_JOB", "0123456789ab_", False),
+        ("UNBLOCK_KANBAN_TASK", "t_0123abcd", True),
+        ("UNBLOCK_KANBAN_TASK", "t_0123abcde", False),
+    ],
+)
+def test_pattern_of_the_catalogue_must_match_the_whole_target(
+    code: str, value: str, allowed: bool
+) -> None:
+    target = load_catalogue(CATALOGUE)[code].target
+
+    assert target is not None
+    assert target.allows(value) is allowed
 
 
 def test_nurse_uses_the_standard_library_only() -> None:

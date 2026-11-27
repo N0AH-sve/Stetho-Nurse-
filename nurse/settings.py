@@ -22,7 +22,13 @@ _PROXY_HOST = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,252}")
 TARGET_MARK = "{target}"
 COMMAND = "hermes"  # the only program an action may start
 _MAX_ARGUMENTS = 32
-AUTOMATIC_ACTIONS = frozenset({"RESTART_GATEWAY"})  # the only ones that may run by themselves
+# The only action that may run by itself, and the only command it may then run: its code alone
+# would let a copied entry run anything unattended.
+AUTOMATIC_ACTION = "RESTART_GATEWAY"
+AUTOMATIC_ARGV = (COMMAND, "gateway", "restart")
+# The limit of NURSE on every target, whatever the pattern of the catalogue. It lets no option,
+# path or space through. The same as the target of the API.
+ACTION_TARGET = re.compile(r"[A-Za-z0-9_]{1,64}")
 LANGUAGES = ("en", "fr", "es")
 # What proves that an action worked, the kind of target it needs, and what must be true to run it.
 VERIFICATIONS: Mapping[str, tuple[str | None, str]] = MappingProxyType(
@@ -128,6 +134,11 @@ class Settings:
 class Target:
     kind: str  # `cron_job` or `kanban_task`
     pattern: re.Pattern[str]
+
+    def allows(self, value: str) -> bool:
+        """The only way to check a target: both limits, each on the whole value."""
+        # The limit of NURSE comes first: it also bounds what the other pattern must read.
+        return bool(ACTION_TARGET.fullmatch(value) and self.pattern.fullmatch(value))
 
 
 @dataclass(frozen=True)
@@ -249,6 +260,8 @@ def _argv(table: _Table, has_target: bool) -> tuple[str, ...]:
         raise SettingsError(f"{where}: the command must be '{COMMAND}'")
     if any(("{" in item or "}" in item) and item != TARGET_MARK for item in value):
         raise SettingsError(f"{where}: {TARGET_MARK} must be a whole argument, with no other brace")
+    if value[1:2] == [TARGET_MARK]:
+        raise SettingsError(f"{where}: {TARGET_MARK} cannot choose the {COMMAND} command")
     if value.count(TARGET_MARK) != int(has_target):
         raise SettingsError(f"{where}: {TARGET_MARK} must appear once, and only with a target")
     return tuple(value)
@@ -284,7 +297,9 @@ def _action(code: str, table: _Table) -> Action:
     if (target.kind if target else None) != wanted:
         raise SettingsError(f"{table.path('target')}: does not match what {verify} verifies")
     auto = table.flag("auto")
-    if auto and code not in AUTOMATIC_ACTIONS:
+    if auto and not (
+        code == AUTOMATIC_ACTION and argv == AUTOMATIC_ARGV and verify == "gateway_restarted"
+    ):
         raise SettingsError(f"{table.path('auto')}: this action may not run automatically")
     auto_per_hour, manual_per_hour = 2, 5
     if table.has("rate_limit"):

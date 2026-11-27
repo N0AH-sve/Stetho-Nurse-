@@ -54,11 +54,11 @@ each field. It is read at startup only.
 | Code | Capital letters, digits and `_` |
 | `label` | `en` required; `fr` and `es` optional |
 | `type` | `command` or `restart_container` |
-| `argv` | 1 to 32 arguments. The first is exactly `hermes`. `{target}` is a whole argument, with no other brace |
+| `argv` | 1 to 32 arguments. The first is exactly `hermes`. `{target}` is a whole argument, with no other brace, and never the second one |
 | `user` | A user name or number, never `root` or 0, without group |
 | `target` | `pattern` and `must_exist_in` (`cron_job` or `kanban_task`) |
 | `verify` | `gateway_restarted`, `job_ran`, `job_paused` or `task_reclaimed`; it must match the target and the type |
-| `auto` | Only `RESTART_GATEWAY` may be automatic |
+| `auto` | Only `RESTART_GATEWAY` may be automatic, and only with `hermes gateway restart` exactly, verified by `gateway_restarted`, without target |
 | `rate_limit` | Optional. If given, both `auto_per_hour` and `manual_per_hour` are required, from 0 to 100; without it, 2 and 5 |
 | `timeout_seconds`, `verify_timeout_seconds` | Required, 1 to 3600 |
 
@@ -67,8 +67,12 @@ the job is not running or is enabled, or the task is running.
 
 **Limits.** An action cannot start another program than `hermes` without a change of the code.
 The checks of the catalogue prevent mistakes; they do not make a catalogue edited by an attacker
-safe, since a `hermes` command can do harm. Protect the file and review it like code. A target
-`pattern` comes from the administrator: NURSE will also apply its own limits to every target.
+safe, since a `hermes` command can do harm. Protect the file and review it like code.
+
+**Targets.** A target `pattern` comes from the administrator. NURSE also limits every target to
+1 to 64 letters, digits or `_`, the form of the API, so that it cannot be an option or a path.
+Both must match the whole value. **Limit:** an expression that takes very long to evaluate is
+not detected.
 A `user` is checked as written: another name for the identifier 0 in the container would not be
 seen.
 
@@ -80,6 +84,8 @@ seen.
   is not in its catalogue.
 - **Commands.** Only `hermes` commands, and the restart of the container. The initial
   specification refused shells; a list of shells is too easy to get around.
+- **What may run unattended.** One exact command, written in the code. Changing it needs a
+  change of the code. The container is never restarted automatically.
 - **Rate limits.** Configurable for each action. Defaults per hour: 2 for automatic runs and 5
   for manual runs.
 - **Automatic requests.** NURSE accepts a request marked automatic only if the catalogue allows
