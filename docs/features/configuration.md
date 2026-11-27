@@ -18,7 +18,18 @@ uv run python -m stetho --config config/stetho.yaml
 ```
 
 The log goes to the error output. STETHO does not start, with exit code 2, when the settings, the
-translations or the rules are invalid, or when it cannot listen on the host and port.
+translations or the rules are invalid, when it cannot listen on the host and port, or after any
+other error found before serving.
+
+| End | Exit code |
+| --- | --- |
+| `SIGINT` or `SIGTERM`, then a normal stop | 0 |
+| The web server cannot run, or the startup or shutdown of STETHO fails | 1 |
+| STETHO does not start (see above) | 2 |
+
+In the failures, the log gives the error type and the calls in STETHO, never a message or a
+traceback. Errors that nothing catches, in a thread for example, are written the same way. The
+web server is given all its settings, so that it reads no environment variable.
 
 - **Required.** Every setting of the example must be present. Only `language` (`en`) and the
   [gateway thresholds](gateway.md#thresholds) may be left out. No other value is assumed.
@@ -26,7 +37,9 @@ translations or the rules are invalid, or when it cannot listen on the host and 
   empty. An empty password means that the reverse proxy handles authentication.
 - **Password.** Empty, or at least 16 characters; characters are counted, not bytes.
 - **Host names.** `server.allowed_hosts` is a non-empty list of distinct names or addresses,
-  without port, wildcard or final dot; IPv6 addresses are between brackets. Case is ignored.
+  without port, wildcard or final dot; IPv6 addresses are between brackets. Case is ignored, and
+  every written form of an IPv6 address is the same.
+- **Characters.** No text may hold a NUL or half of a Unicode surrogate pair.
 - **Numbers.** Ports go from 1 to 65535; durations and counts are whole numbers greater than 0.
 - **Paths.** Directories are absolute paths. Whether they exist is not checked at startup: a
   missing source is reported while STETHO runs.

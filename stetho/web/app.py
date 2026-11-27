@@ -14,6 +14,7 @@ from starlette.routing import Route
 from starlette.types import ASGIApp
 
 from stetho.config import Config
+from stetho.errors import summarise_error
 from stetho.i18n import Translator
 from stetho.probe import Probe, ProbeReport
 from stetho.web.guard import HEALTH_PATH, Guard, error_response
@@ -26,6 +27,7 @@ class ReportStore:
 
     def __init__(self) -> None:
         self.latest: ProbeReport | None = None
+        self.failed = False  # the startup or the shutdown of the application failed
 
     def publish(self, report: ProbeReport) -> None:
         self.latest = report  # replaced as a whole: a reader never sees half a report
@@ -39,7 +41,7 @@ def create_app(config: Config, translator: Translator, probe: Probe, store: Repo
     """The protected application. The probe runs from startup to shutdown."""
 
     @contextlib.asynccontextmanager
-    async def lifespan(_app: Starlette) -> AsyncIterator[None]:
+    async def probing(_app: Starlette) -> AsyncIterator[None]:
         stop = threading.Event()
         thread = threading.Thread(
             target=probe.run_forever,
@@ -48,11 +50,25 @@ def create_app(config: Config, translator: Translator, probe: Probe, store: Repo
             daemon=True,
         )
         thread.start()
+        _LOG.info("STETHO has started")
         try:
             yield
         finally:
             stop.set()
             await run_in_threadpool(thread.join, config.probe.sensor_timeout_seconds + 1)
+
+    @contextlib.asynccontextmanager
+    async def lifespan(app: Starlette) -> AsyncIterator[None]:
+        try:
+            async with probing(app):
+                yield
+        except Exception as error:
+            # Written here: the web server only passes on a text, which is not shown.
+            store.failed = True
+            summary = summarise_error(error)
+            calls = "".join(f"\n  {call}" for call in summary.calls)
+            _LOG.error("startup or shutdown failed: %s%s", summary.error_type, calls)
+            raise
 
     async def http_error(_request: Request, error: Exception) -> Response:
         assert isinstance(error, HTTPException)  # noqa: S101 - registered for it only

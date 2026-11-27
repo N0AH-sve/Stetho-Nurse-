@@ -7,7 +7,6 @@ import json
 import logging
 import socket
 import threading
-import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from http.client import HTTPConnection
@@ -118,15 +117,20 @@ def basic(password: str = LONG_PHRASE, user: str = "anyone", scheme: str = "Basi
 
 
 @contextlib.contextmanager
-def running(settings_: Config) -> Iterator[Client]:
-    server = build_server(settings_)
+def running(settings_: Config, store: web_app.ReportStore | None = None) -> Iterator[Client]:
+    server = build_server(settings_, store or web_app.ReportStore())
+    ready = threading.Event()
+    startup = server.startup
+
+    async def startup_then_tell(sockets: list[socket.socket] | None = None) -> None:
+        await startup(sockets=sockets)
+        ready.set()
+
+    server.startup = startup_then_tell  # type: ignore[method-assign]
     listener = listening_socket("127.0.0.1", 0)
     thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
-    deadline = time.monotonic() + 5
-    while not server.started:
-        assert time.monotonic() < deadline, "the server did not start"
-        threading.Event().wait(0.01)
+    assert ready.wait(10), "the server did not start"
     try:
         yield Client(listener.getsockname()[1])
     finally:
@@ -447,26 +451,62 @@ def test_error_in_a_route_shows_nothing_anywhere(
 
 
 @pytest.mark.usefixtures("log")
-def test_probe_runs_while_the_server_does(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_probe_runs_while_the_server_does() -> None:
     published = threading.Event()
-    stores: list[web_app.ReportStore] = []
 
     class Watched(web_app.ReportStore):
-        def __init__(self) -> None:
-            super().__init__()
-            stores.append(self)
-
         def publish(self, report: Any) -> None:
             super().publish(report)
             published.set()
 
-    monkeypatch.setattr("stetho.__main__.ReportStore", Watched)
+    store = Watched()
 
-    with running(config()):
+    with running(config(), store):
         assert published.wait(5)
         assert "probe" in {thread.name for thread in threading.enumerate()}
 
     assert "probe" not in {thread.name for thread in threading.enumerate()}
-    latest = stores[0].latest
-    assert latest is not None
-    assert [result.id for result in latest.sensors] == ["gateway"]
+    assert store.latest is not None
+    assert [result.id for result in store.latest.sensors] == ["gateway"]
+    assert not store.failed
+
+
+def test_password_is_compared_in_constant_time(
+    client: Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    compared: list[tuple[int, int]] = []
+
+    def spy(first: bytes, second: bytes) -> bool:
+        compared.append((len(first), len(second)))
+        return first == second
+
+    monkeypatch.setattr("secrets.compare_digest", spy)
+
+    client.request("/x", authorization=(basic("short"),))
+
+    assert compared == [(32, 32)]  # digests: the length of the password is not compared
+
+
+@pytest.mark.parametrize("sent", ["[::1]", "[0:0:0:0:0:0:0:1]", "[0000::0001]:80"])
+def test_every_written_form_of_an_ipv6_address_is_the_same(sent: str) -> None:
+    async def reached(scope: Scope, receive: Receive, send: Send) -> None:
+        await Response("x")(scope, receive, send)
+
+    guard_scope = {**HTTP_SCOPE, "headers": [(b"host", sent.encode())]}
+    messages: list[Message] = []
+    guard = Guard(
+        reached,
+        allowed_hosts=("[0:0:0:0:0:0:0:1]",),
+        password=Secret(""),
+        translator=load_translator(Language.EN),
+    )
+
+    async def receive() -> Message:
+        return {"type": "http.request"}
+
+    async def send(message: Message) -> None:
+        messages.append(message)
+
+    anyio.run(guard, guard_scope, receive, send)
+
+    assert messages[0]["status"] == 200

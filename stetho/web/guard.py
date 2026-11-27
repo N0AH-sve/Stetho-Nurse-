@@ -14,7 +14,7 @@ import secrets
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from stetho.config import Secret
+from stetho.config import Secret, normalise_host
 from stetho.errors import summarise_error
 from stetho.i18n import Translator
 
@@ -85,7 +85,7 @@ class Guard:
         translator: Translator,
     ) -> None:
         self._app = app
-        self._hosts = frozenset(host.lower() for host in allowed_hosts)
+        self._hosts = frozenset(normalise_host(host) for host in allowed_hosts)
         self._password = _digest(password.reveal().encode()) if password else None
         self._translator = translator
 
@@ -145,7 +145,7 @@ class Guard:
         if len(values) != 1:
             return False
         match = _HOST.fullmatch(values[0].decode("latin-1"))
-        return match is not None and match[1].lower() in self._hosts
+        return match is not None and normalise_host(match[1]) in self._hosts
 
     def _authenticated(self, scope: Scope) -> bool:
         if self._password is None:

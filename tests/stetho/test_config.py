@@ -143,6 +143,22 @@ def test_short_password_is_refused_without_quoting_it(password: str) -> None:
     assert message == "auth.password: must be empty or have at least 16 characters"
 
 
+@pytest.mark.parametrize(
+    "path", ["server.host", "auth.password", "hermes.data_dir", "alerts.discord.webhook_url"]
+)
+@pytest.mark.parametrize("bad", ["\0", "\udcff"])
+def test_unusable_character_is_refused_without_quoting(path: str, bad: str) -> None:
+    message = error_of(changed(path, f"/{MARKER}-long-enough{bad}"))
+
+    assert message == f"{path}: holds a character that cannot be used"
+
+
+def test_same_address_written_twice_is_refused() -> None:
+    document = changed("server.allowed_hosts", ["[::1]", "[0:0:0:0:0:0:0:1]"])
+
+    assert error_of(document) == "server.allowed_hosts: the same address is given twice"
+
+
 def test_gateway_thresholds_may_be_changed() -> None:
     document = changed("modules.gateway.overrides", {"down_after_minutes": 10})
 

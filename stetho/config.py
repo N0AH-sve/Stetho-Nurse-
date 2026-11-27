@@ -206,6 +206,9 @@ class _Section:
         value = self.take(key)
         if not isinstance(value, str):
             raise ConfigError(f"{self.path(key)}: expected a text, in quotes if needed")
+        # A NUL or half of a surrogate pair would fail later, when the value is used.
+        if "\0" in value or any("\ud800" <= char <= "\udfff" for char in value):
+            raise ConfigError(f"{self.path(key)}: holds a character that cannot be used")
         if not allow_empty and not value.strip():
             raise ConfigError(f"{self.path(key)}: must not be empty")
         return value
@@ -220,7 +223,7 @@ class _Section:
 
     def directory(self, key: str) -> Path:
         value = self.text(key)
-        if "\0" in value or not PurePosixPath(value).is_absolute():
+        if not PurePosixPath(value).is_absolute():
             raise ConfigError(f"{self.path(key)}: expected an absolute path")
         return Path(value)
 
@@ -237,7 +240,10 @@ class _Section:
                 f"{self.path(key)}: expected a list of distinct host names or addresses, without "
                 "port or wildcard; IPv6 addresses between brackets"
             )
-        return tuple(item.lower() for item in value)
+        hosts = tuple(normalise_host(item) for item in value)
+        if len(set(hosts)) != len(hosts):
+            raise ConfigError(f"{self.path(key)}: the same address is given twice")
+        return hosts
 
     def password(self, key: str) -> Secret:
         """Empty, or long enough."""
@@ -265,6 +271,16 @@ class _Section:
                 "(letters, digits, '_' and '-')"
             )
         return tuple(value)
+
+
+def normalise_host(value: str) -> str:
+    """One written form for a host: lower case, and the short form of an IPv6 address."""
+    if value.startswith("[") and value.endswith("]"):
+        try:
+            return f"[{IPv6Address(value[1:-1]).compressed}]"
+        except ValueError:
+            pass
+    return value.lower()
 
 
 def _is_host_name(value: str) -> bool:

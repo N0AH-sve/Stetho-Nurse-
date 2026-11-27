@@ -1,5 +1,11 @@
 import io
 import logging
+import signal
+import socket
+import subprocess
+import sys
+import threading
+import warnings
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -10,7 +16,8 @@ import yaml
 
 from stetho import __main__ as program
 from stetho.config import load_config
-from stetho.logs import SafeFilter, setup_logging
+from stetho.logs import SafeFilter, install_error_hooks, setup_logging
+from stetho.web import app as web_app
 
 ROOT = Path(__file__).parents[2]
 MADE_UP_PHRASE = "made-up-password-long-enough"
@@ -18,9 +25,12 @@ MARKER = "made-up-private-text"
 
 
 @pytest.fixture(autouse=True)
-def restored_logging() -> Iterator[None]:
+def restored_logging(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     root = logging.getLogger()
     handlers, level = root.handlers[:], root.level
+    # The program replaces these hooks: put the original ones back afterwards.
+    for module, name in ((sys, "excepthook"), (sys, "unraisablehook"), (threading, "excepthook")):
+        monkeypatch.setattr(module, name, getattr(module, name))
     yield
     root.handlers, root.level = handlers, level
     logging.captureWarnings(capture=False)
@@ -33,6 +43,12 @@ def write_config(tmp_path: Path, **server: Any) -> Path:
     path = tmp_path / "stetho.yaml"
     path.write_text(yaml.safe_dump(document), encoding="utf-8")
     return path
+
+
+def free_port() -> int:
+    with program.listening_socket("127.0.0.1", 0) as free:
+        port: int = free.getsockname()[1]
+    return port
 
 
 def test_the_settings_file_must_be_given(capsys: pytest.CaptureFixture[str]) -> None:
@@ -137,13 +153,15 @@ def test_exit_code_tells_whether_the_server_started(
 def test_server_is_hardened(tmp_path: Path) -> None:
     config = load_config(write_config(tmp_path, port=65000))
 
-    options = program.build_server(config).config
+    options = program.build_server(config, web_app.ReportStore()).config
 
     assert (options.ws, options.http, options.lifespan) == ("none", "h11", "on")
     assert not options.proxy_headers
     assert not options.server_header
     assert not options.access_log
     assert options.log_config is None
+    assert options.timeout_graceful_shutdown == 5
+    assert options.workers == 1
 
 
 def logged(name: str, level: int, message: str, **extra: Any) -> str:
@@ -190,3 +208,177 @@ def test_filter_is_on_the_only_handler() -> None:
 
     assert logging.getLogger().handlers == [handler]
     assert any(isinstance(item, SafeFilter) for item in handler.filters)
+
+
+@pytest.mark.parametrize("name", ["WEB_CONCURRENCY", "FORWARDED_ALLOW_IPS"])
+def test_environment_variables_change_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    monkeypatch.setenv(name, MARKER)
+    config = load_config(write_config(tmp_path, port=65000))
+
+    options = program.build_server(config, web_app.ReportStore()).config
+
+    assert (options.workers, options.forwarded_allow_ips) == (1, "")
+
+
+def test_unexpected_error_at_startup_shows_no_message(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def crash(_config: object, _store: object) -> None:
+        raise RuntimeError(MARKER)
+
+    monkeypatch.setattr(program, "build_server", crash)
+
+    assert program.main(["--config", str(write_config(tmp_path, port=65000))]) == 2
+
+    printed = capsys.readouterr().err
+    assert "STETHO cannot start: RuntimeError" in printed
+    assert MARKER not in printed
+
+
+def test_unusable_host_name_stops_the_start(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(_host: str, _port: int) -> None:
+        raise UnicodeError(MARKER)
+
+    monkeypatch.setattr(program, "listening_socket", refuse)
+
+    assert program.main(["--config", str(write_config(tmp_path, port=65000))]) == 2
+    assert MARKER not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("moment", ["startup", "shutdown"])
+def test_failed_startup_or_shutdown_is_reported_without_its_message(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    moment: str,
+) -> None:
+    async def failing_join(*_arguments: object) -> None:
+        raise RuntimeError(MARKER)
+
+    def failing_thread(*_arguments: object, **_options: object) -> None:
+        raise RuntimeError(MARKER)
+
+    if moment == "startup":
+        monkeypatch.setattr("stetho.web.app.threading.Thread", failing_thread)
+    else:
+        monkeypatch.setattr(web_app, "run_in_threadpool", failing_join)
+        # Ask the server to stop as soon as it has started.
+        startup = uvicorn.Server.startup
+
+        async def start_then_stop(self: uvicorn.Server, sockets: Any = None) -> None:
+            await startup(self, sockets=sockets)
+            self.should_exit = True
+
+        monkeypatch.setattr(uvicorn.Server, "startup", start_then_stop)
+
+    assert program.main(["--config", str(write_config(tmp_path, port=free_port()))]) == 1
+
+    printed = capsys.readouterr()
+    assert "startup or shutdown failed: RuntimeError" in printed.err
+    assert MARKER not in printed.err + printed.out
+    assert "Traceback" not in printed.err
+
+
+@pytest.mark.parametrize("sent", [signal.SIGINT, signal.SIGTERM])
+def test_stop_signal_ends_cleanly(tmp_path: Path, sent: signal.Signals) -> None:
+    path = write_config(tmp_path, port=free_port())
+    process = subprocess.Popen(  # noqa: S603 - this interpreter and fixed arguments
+        [sys.executable, "-m", "stetho", "--config", str(path)],
+        cwd=ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    watchdog = threading.Timer(30, process.kill)
+    watchdog.start()
+    try:
+        assert process.stderr is not None
+        started = ""
+        for line in process.stderr:
+            started += line
+            if "STETHO has started" in line:
+                break
+        process.send_signal(sent)
+        out, err = process.communicate()
+    finally:
+        watchdog.cancel()
+        process.kill()
+
+    assert process.returncode == 0, started + err
+    assert "STETHO stopped" in err
+    assert "Traceback" not in started + err + out
+
+
+@pytest.mark.parametrize("sent", [signal.SIGINT, signal.SIGTERM])
+def test_stop_signal_during_the_startup_interrupts_it(sent: signal.Signals) -> None:
+    class Starting:
+        should_exit = False
+
+        def run(self, **_options: object) -> None:
+            signal.raise_signal(sent)
+            pytest.fail("the signal did not interrupt")
+
+    previous = signal.getsignal(sent)
+
+    server: Any = Starting()
+    with socket.socket() as unused:
+        code = program._serve(server, unused, web_app.ReportStore())
+
+    assert code == 0
+    assert signal.getsignal(sent) is previous
+
+
+def test_server_giving_up_is_reported(capsys: pytest.CaptureFixture[str]) -> None:
+    class GivesUp:
+        should_exit = False
+
+        def run(self, **_options: object) -> None:
+            raise SystemExit(3)
+
+    setup_logging()
+
+    server: Any = GivesUp()
+    with socket.socket() as unused:
+        code = program._serve(server, unused, web_app.ReportStore())
+
+    assert code == 1
+    assert "the web server could not run" in capsys.readouterr().err
+
+
+def test_warning_text_is_not_written() -> None:
+    stream = io.StringIO()
+    with warnings.catch_warnings():
+        warnings.simplefilter("always")
+        setup_logging(stream)
+
+        warnings.warn(MARKER, stacklevel=1)
+
+        logging.captureWarnings(capture=False)
+    assert "message of py.warnings not shown" in stream.getvalue()
+    assert MARKER not in stream.getvalue()
+
+
+def test_uncaught_errors_are_written_without_their_message() -> None:
+    stream = io.StringIO()
+    setup_logging(stream)
+    install_error_hooks()
+
+    def fail() -> None:
+        raise KeyError(MARKER)
+
+    thread = threading.Thread(target=fail)
+    thread.start()
+    thread.join(5)
+    sys.excepthook(ValueError, ValueError(MARKER), None)
+    sys.unraisablehook(  # what Python calls when an error cannot be raised
+        type("Args", (), {"exc_value": OSError(MARKER)})()
+    )
+
+    written = stream.getvalue()
+    for name in ("KeyError", "ValueError", "OSError"):
+        assert f"uncaught error: {name}" in written
+    assert MARKER not in written

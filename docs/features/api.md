@@ -104,9 +104,15 @@ There is no redirection for a trailing slash.
   calls in STETHO. For the messages of other libraries, such as the web server, only their origin
   and level are written, and no traceback is ever written. This can make a failure of the web
   server harder to understand; a port that cannot be opened has its own message.
-- **Limit.** A request that is not valid HTTP, which includes one without a `Host` header or with
-  two, is answered by the web server itself, before these checks: that response has no security
-  header and is not in the error format. It names no software and repeats nothing of the request.
+- **Limit.** A request that is not valid HTTP, such as an HTTP/1.1 request without a `Host` header
+  or with two, is answered by the web server itself, before these checks: that response has no
+  security header and is not in the error format. It names no software and repeats nothing of the
+  request.
+- **Limit.** Anyone who reaches the port can fill the log without a password: an invalid request,
+  or one that asks for another protocol, writes a line of the web server, without its message.
+- **Limit.** STETHO bounds neither the number of connections nor the time to send the headers of
+  a request. Many idle connections could use up the files the process may open, which the
+  sensors need too. Only the reverse proxy reduces this.
 
 **CSRF** (with the actions, not implemented). A token signed with a random key made at startup,
 valid for 12 hours, sent in `X-CSRF-Token`. The submission accepts JSON only and refuses a
@@ -125,6 +131,8 @@ Only the format of the error responses is checked against the contract. Full con
 will use `openapi-schema-validator`, which is typed, instead of `jsonschema`, which is not.
 
 ## Open points
+
+- **Connections.** Whether STETHO limits the connections itself. See the [limits](#security).
 
 To settle before the [actions](#actions) are served:
 
