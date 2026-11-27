@@ -104,7 +104,8 @@ class _Parser:
         if not isinstance(platforms, dict):
             self._unusable("platforms")
             return ()
-        process = _process(document)
+        # Compared as written: turning a value into another could make two writers look alike.
+        process = (document.get("pid"), document.get("start_time"))
         found = []
         for key in sorted(platforms, key=str):
             entry = self._entry(key, platforms[key], process)

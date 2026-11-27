@@ -169,6 +169,99 @@ def test_a_date_moved_forward_still_ends_in_critical(tmp_path: Path) -> None:
     assert only(result).status is Status.CRITICAL
 
 
+@pytest.mark.parametrize(
+    ("file_start", "writer_start", "current"),
+    [
+        ("abc", None, False),
+        (None, "abc", False),
+        (123456.5, 123456.5, True),
+        ("abc", "abc", True),
+        (None, None, True),
+        (123456, 654321, False),
+        ([1], [1], True),
+    ],
+)
+def test_writer_is_compared_on_the_values_as_written(
+    tmp_path: Path, file_start: object, writer_start: object, current: bool
+) -> None:
+    entry = platform(writer_start_time=writer_start)
+
+    item = only(card(tmp_path, {"discord": entry}, start_time=file_start))
+
+    assert (item.status is Status.OK) is current
+
+
+def wait_with(gateway: PlatformsSensor, home: Path, minutes: float, start: object) -> None:
+    moment = NOW + timedelta(minutes=minutes)
+    entry = platform("retrying", writer_start_time=start)
+    write(home, {"discord": entry}, start_time=start, updated_at=moment.isoformat())
+    read(gateway, moment)
+
+
+@pytest.mark.parametrize(("start", "kept"), [(123456, True), (None, False)])
+def test_unidentified_process_does_not_keep_a_wait_across_a_gap(
+    tmp_path: Path, start: int | None, kept: bool
+) -> None:
+    gateway = sensor(tmp_path)
+    wait_with(gateway, tmp_path, 0, start)
+    write(tmp_path, {}, gateway_state="stopped")
+    read(gateway, NOW + timedelta(minutes=1))
+    moment = NOW + timedelta(minutes=6)
+    entry = platform("retrying", writer_start_time=start)
+    write(tmp_path, {"discord": entry}, start_time=start, updated_at=moment.isoformat())
+
+    result = read(gateway, moment).result
+
+    assert (only(result).status is Status.CRITICAL) is kept
+
+
+def test_unidentified_process_still_becomes_critical_while_read(tmp_path: Path) -> None:
+    gateway = sensor(tmp_path)
+    for minutes in (0, 3):
+        wait_with(gateway, tmp_path, minutes, None)
+    moment = NOW + timedelta(minutes=6)
+    entry = platform("retrying", writer_start_time=None)
+    write(tmp_path, {"discord": entry}, start_time=None, updated_at=moment.isoformat())
+
+    assert only(read(gateway, moment).result).status is Status.CRITICAL
+
+
+def test_removed_platform_waits_no_more(tmp_path: Path) -> None:
+    gateway = sensor(tmp_path)
+    run_at(gateway, tmp_path, 0)
+    moment = NOW + timedelta(minutes=1)
+    write(tmp_path, {}, updated_at=moment.isoformat())
+    read(gateway, moment)
+
+    result = run_at(gateway, tmp_path, 600)
+
+    assert only(result).status is Status.WARN
+
+
+def test_platform_seen_as_former_waits_no_more(tmp_path: Path) -> None:
+    gateway = sensor(tmp_path)
+    run_at(gateway, tmp_path, 0)
+    moment = NOW + timedelta(minutes=1)
+    former = platform("retrying", writer_pid=90)
+    write(tmp_path, {"discord": former}, updated_at=moment.isoformat())
+    read(gateway, moment)
+
+    result = run_at(gateway, tmp_path, 600)
+
+    assert only(result).status is Status.WARN
+
+
+def test_without_the_gateway_module_a_meant_stop_is_not_pushed_back(tmp_path: Path) -> None:
+    write(tmp_path, {}, gateway_state="stopped", desired_state="stopped")
+
+    result = read(sensor(tmp_path, gateway={"enabled": False})).result
+
+    assert (result.status, result.advice) == (
+        Status.UNKNOWN,
+        "If this stop is no longer wanted, start Hermes again.",
+    )
+
+
 def test_threshold_can_be_changed(tmp_path: Path) -> None:
     write(tmp_path, {"discord": platform("retrying", retrying_since=since(8))})
     gateway = sensor(tmp_path, platforms={"overrides": {"critical_after_minutes": 10}})
@@ -434,21 +527,42 @@ def test_without_the_gateway_module_a_missing_field_is_reported_here(tmp_path: P
         {"gateway_state": "stopped"},
         {"gateway_state": "startup_failed"},
         {"updated_at": (NOW - timedelta(minutes=30)).isoformat()},
+        {"updated_at": int(NOW.timestamp())},
+        {"gateway_state": "degraded", "exit_reason": "shutdown_watchdog"},
+        {"gateway_state": "stopped", "platforms": {}},
     ],
 )
 def test_without_the_gateway_module_a_dead_gateway_is_a_problem_here(
     tmp_path: Path, gateway: dict[str, Any]
 ) -> None:
-    write(tmp_path, {"discord": platform()}, **gateway)
+    platforms = gateway.pop("platforms", {"discord": platform()})
+    write(tmp_path, platforms, **gateway)
 
-    result = read(sensor(tmp_path, gateway={"enabled": False})).result
+    outcome = read(sensor(tmp_path, gateway={"enabled": False}))
+    result = outcome.result
 
     assert (result.status, result.assessed) == (Status.UNKNOWN, True)
     assert result.summary == (
         "The platforms cannot be checked: the gateway is not running normally"
     )
     assert result.advice == "Check that the Hermes gateway runs, and read its logs."
-    assert only(result).assessed is False
+    assert outcome.anomalies == ()
+    assert [item.assessed for item in result.items] == [False] * len(platforms)
+
+
+@pytest.mark.parametrize(
+    "changes", [{"platforms": {"discord": platform("weird")}}, {"new_top_field": 1}]
+)
+def test_without_the_gateway_module_anomalies_of_a_dead_gateway_are_kept(
+    tmp_path: Path, changes: dict[str, Any]
+) -> None:
+    platforms = changes.pop("platforms", {"discord": platform()})
+    write(tmp_path, platforms, gateway_state="stopped", **changes)
+
+    outcome = read(sensor(tmp_path, gateway={"enabled": False}))
+
+    assert len(outcome.anomalies) == 1
+    assert outcome.result.assessed
 
 
 def test_repair_is_offered_when_no_intent_is_written(tmp_path: Path) -> None:

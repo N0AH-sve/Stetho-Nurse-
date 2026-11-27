@@ -85,13 +85,17 @@ class PlatformsSensor:
         for reading in readings:
             if self._alive(reading.gateway, now):
                 cards.append(self._card(reading, now, several))
+                if reading.complete:
+                    self._forget_removed(reading)
                 anomalies.extend(reading.anomalies)
-            elif not self._config.modules.gateway.enabled:
-                # No gateway card says that something is wrong: this one must.
-                cards.append(self._unexplained(reading, several))
-                anomalies.extend((*reading.file_anomalies, *reading.anomalies))
             else:
-                cards.append(self._not_assessed(reading, several))
+                self._forget_unidentified(reading.profile)
+                if not self._config.modules.gateway.enabled:
+                    # No gateway card says that something is wrong: this one must.
+                    cards.append(self._unexplained(reading, several))
+                    anomalies.extend((*reading.file_anomalies, *reading.anomalies))
+                else:
+                    cards.append(self._not_assessed(reading, several))
         return SensorOutcome(
             self._result(cards, global_anomalies, tuple(anomalies), now), tuple(anomalies)
         )
@@ -134,11 +138,28 @@ class PlatformsSensor:
         )
         return _Card(items, False)
 
+    def _forget_removed(self, reading: PlatformsReading) -> None:
+        """A platform that a complete reading no longer holds waits no more."""
+        present = {entry.key for entry in reading.entries}
+        for profile, key in list(self._waiting_since):
+            if profile == reading.profile and key not in present:
+                del self._waiting_since[profile, key]
+
+    def _forget_unidentified(self, profile: str) -> None:
+        """Without both numbers of the process, a restart could go unseen while nothing is read."""
+        for key, (_, process) in list(self._waiting_since.items()):
+            if key[0] == profile and None in process:
+                del self._waiting_since[key]
+
     def _unexplained(self, reading: PlatformsReading, several: bool) -> _Card:
         usable = reading.gateway is not None and reading.gateway.heartbeat is not None
         items = self._not_assessed(reading, several).items
         if usable:
-            return _Card(items, True, "gateway_down", "check_gateway")
+            assert reading.gateway is not None  # noqa: S101 - for the type checker
+            stopped = reading.gateway.desired_state == "stopped"
+            return _Card(
+                items, True, "gateway_down", "deliberate_stop" if stopped else "check_gateway"
+            )
         return _Card(items, True, "unusable", "check_data")
 
     def _card(self, reading: PlatformsReading, now: datetime, several: bool) -> _Card:
@@ -250,7 +271,9 @@ class PlatformsSensor:
             advice = worst.advice
         elif reason is not None:
             summary = text(f"platforms.summary.{reason.unknown_reason}")
-            advice = text(f"platforms.advice.{reason.advice}")
+            # The same words as the gateway card for a stop that was meant.
+            module = "gateway" if reason.advice == "deliberate_stop" else "platforms"
+            advice = text(f"{module}.advice.{reason.advice}")
         elif down and not unchecked and anomalies:
             summary = text("platforms.summary.partly_assessed")
             advice = text("platforms.advice.check_data")

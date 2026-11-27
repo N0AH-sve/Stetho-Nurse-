@@ -26,8 +26,10 @@ A state file that cannot be used is left to the `gateway` module, which reports 
 
 If that module is disabled, no other card can say that something is wrong. The platforms of a
 gateway that does not run are then `unknown` and **assessed**, so that they are listed as a
-problem: either "the gateway is not running normally", or, with the anomalies of the file when it
-or its date cannot be used, "the platforms cannot be checked".
+problem: either "the gateway is not running normally", with the advice of a deliberate stop when
+`desired_state` is `stopped`, or, when the file or its date cannot be used, "the platforms cannot
+be checked". In both cases, the anomalies of the file and of the platforms are reported, since no
+other card would report them.
 
 ## Rules
 
@@ -51,7 +53,10 @@ each state and the repair.
   platform waiting. A date that Hermes would move forward therefore still ends in `critical`
   (**not verified:** whether Hermes moves it). STETHO keeps its date while the same gateway
   process runs, even across readings where the gateway is late. It forgets it when the platform
-  is seen in another state, when the process changes, and when STETHO restarts.
+  is seen in another state, as a former entry or no longer there, when the process changes, and
+  when STETHO restarts. When the file lacks a number of the process (`pid` or `start_time`), a
+  restart could go unseen: the date is then also forgotten at any reading where the gateway does
+  not run normally.
 - **Actions** are offered for the main gateway only, since an action names no profile, and never
   when its `desired_state` is `stopped` or unknown. A restart of the gateway restarts every
   platform. This includes the platforms of the profiles that the main gateway serves. When
@@ -90,7 +95,8 @@ when one gateway serves several profiles.
 | Unknown state | `unexpected_value` |
 | Impossible `retrying_since` | `implausible_value` |
 
-Platforms that are not assessed are not parsed and raise no anomaly. Earlier anomalies stay
+With the `gateway` module enabled, platforms that are not assessed raise no anomaly; with it
+disabled, see [when platforms are assessed](#when-platforms-are-assessed). Earlier anomalies stay
 while the whole card is not assessed. **Limit:** when only some gateways are down, their earlier
 anomalies end, although they were not checked again.
 
