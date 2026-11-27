@@ -1,6 +1,7 @@
 """The reading routes of the API. They read the latest report: no request runs a sensor."""
 
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
@@ -13,6 +14,7 @@ from stetho.config import Config
 from stetho.i18n import Translator
 from stetho.patterns import SENSOR_ID
 from stetho.web.guard import HEALTH_PATH, error_response
+from stetho.web.page import build_page
 from stetho.web.report import (
     ReportStore,
     View,
@@ -26,6 +28,9 @@ from stetho.yamlfile import load_yaml
 
 CONTRACT_FILE = Path(__file__).parents[1] / "openapi.yaml"
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+STATIC_DIR = Path(__file__).parent / "static"
+# The only files served, read once at startup.
+_STATIC_TYPES = {"page.css": "text/css", "page.js": "text/javascript"}
 
 type Handler = Callable[[Request], Awaitable[Response]]
 
@@ -46,6 +51,10 @@ def _operations(contract: dict[str, object]) -> list[dict[str, object]]:
     ]
 
 
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
 def build_routes(config: Config, translator: Translator, store: ReportStore) -> list[Route]:
     """Everything that can fail is loaded here, before the server starts."""
     contract = load_yaml(CONTRACT_FILE)
@@ -61,6 +70,10 @@ def build_routes(config: Config, translator: Translator, store: ReportStore) -> 
         not_served=translator.text("api.docs.not_served"),
         operations=_operations(contract),
     )
+    status_page = environment.get_template("status.html")
+    assets = {
+        name: ((STATIC_DIR / name).read_bytes(), kind) for name, kind in _STATIC_TYPES.items()
+    }
     stale_after = stale_after_seconds(config.probe)
 
     def current() -> View:
@@ -77,6 +90,23 @@ def build_routes(config: Config, translator: Translator, store: ReportStore) -> 
             return await handler(request)
 
         return checked
+
+    async def page(_request: Request) -> Response:
+        return HTMLResponse(
+            status_page.render(
+                language=config.language.value,
+                t=translator.text,
+                page=build_page(current(), _now(), translator, config.timezone),
+            )
+        )
+
+    def asset(name: str) -> Handler:
+        content, kind = assets[name]
+
+        async def serve(_request: Request) -> Response:
+            return Response(content, media_type=kind)
+
+        return serve
 
     async def health(_request: Request) -> Response:
         return JSONResponse({"status": "ok"})
@@ -122,6 +152,8 @@ def build_routes(config: Config, translator: Translator, store: ReportStore) -> 
         return HTMLResponse(documentation)
 
     return [
+        Route("/", strict(page)),
+        *(Route(f"/static/{name}", strict(asset(name))) for name in _STATIC_TYPES),
         Route(HEALTH_PATH, strict(health)),
         Route("/api/v1/status", strict(status)),
         Route("/api/v1/sensors/{sensor_id}", strict(sensor)),
