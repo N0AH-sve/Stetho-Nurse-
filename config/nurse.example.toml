@@ -5,7 +5,7 @@
 
 # Switch for all automatic actions.
 auto_actions = false
-# Total cap over all actions, whatever their origin. The default value is still to be confirmed.
+# Total cap over all actions, whatever their origin: from 1 to 100 per hour.
 max_actions_per_hour = 7
 
 [hermes]
@@ -19,4 +19,6 @@ proxy_url = "http://docker-proxy:2375"
 actions_file = "/config/actions.toml"
 prescriptions_dir = "/shared/prescriptions"
 results_dir = "/shared/results"
+# Private to NURSE: STETHO must neither read nor write it. It keeps what must not be replayed.
+# The folders must be separate, and the catalogue outside them.
 log_dir = "/log"

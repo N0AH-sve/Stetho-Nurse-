@@ -4,13 +4,17 @@ Each step is delivered as one or more small pull requests. The next step starts 
 previous one is reviewed and merged. Before a feature is coded, its page in `features/` states
 its behaviour, error cases and acceptance criteria.
 
+On 2026-11-27, steps 8 and 9 were brought forward: the rest of step 6 (scheduler, cron jobs,
+Kanban) and step 7 come after them. Until then nobody is alerted: automatic actions should stay
+off, since NURSE cannot ask for a person.
+
 - [ ] 1. Preparation: contribution guide, open technical questions, continuous integration
 - [ ] 2. Real Hermes: record file formats, permissions and command outputs; write fake test data
 - [ ] 3. STETHO core: configuration, statuses, errors and translations
 - [ ] 4. First complete module: `gateway`, from files to its result
 - [ ] 5. API and status page, starting with the completed API contract
 - [ ] 6. Other base modules: platforms, scheduler, cron jobs and Kanban
-- [ ] 7. Discord alerts
+- [ ] 7. Discord alerts (**deferred** on 2026-11-27: steps 8 and 9 come first)
 - [ ] 8. NURSE without execution: prove that it refuses invalid requests
 - [ ] 9. Manual actions, then automatic ones
 - [ ] 10. Sessions and known weaknesses

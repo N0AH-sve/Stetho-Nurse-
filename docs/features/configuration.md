@@ -107,12 +107,15 @@ To add a text, add the same key to the three files. `tests/stetho/test_i18n.py` 
 rules and checks the shipped files. Plural forms are not handled: durations use short units, such
 as `5 min`, in `stetho/durations.py`. Dates are written as `2026-01-15 12:30`.
 
+## NURSE settings and action catalogue
+
+`nurse.toml` and `actions.toml` are described with the
+[corrective actions](actions.md#settings). The catalogue is in TOML, see
+[technology choices](../tech-stack.md#4-format-of-the-nurse-action-catalogue).
+
 ## Planned content
 
-- NURSE settings
 - Rule overrides of the other modules
-- Action catalogue (`actions.toml`, see
-  [technology choices](../tech-stack.md#4-format-of-the-nurse-action-catalogue))
 
 ## Decisions
 
