@@ -47,7 +47,8 @@ summary { cursor: pointer; }
 /* Data that can no longer be refreshed must not look healthy. */
 body.outdated .banner { background: var(--warn); }
 body.outdated .pill { background: var(--neutral); }
-body.outdated main { opacity: .7; }
+/* The warning stays in sight wherever the reader is. No fading: texts keep their contrast. */
+#refresh-failed { position: sticky; top: 0; z-index: 1; }
 /* On a phone, each problem is a block, and the sort buttons stay in one line above. */
 @media (max-width: 40rem) {
   #problems, #problems thead, #problems tbody, #problems td, #problems tbody tr { display: block; }

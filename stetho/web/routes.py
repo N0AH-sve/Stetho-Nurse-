@@ -51,16 +51,11 @@ def _operations(contract: dict[str, object]) -> list[dict[str, object]]:
     ]
 
 
-type Clock = Callable[[], datetime]
-
-
 def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def build_routes(
-    config: Config, translator: Translator, store: ReportStore, clock: Clock = _now
-) -> list[Route]:
+def build_routes(config: Config, translator: Translator, store: ReportStore) -> list[Route]:
     """Everything that can fail is loaded here, before the server starts."""
     contract = load_yaml(CONTRACT_FILE)
     if not isinstance(contract, dict):
@@ -101,7 +96,7 @@ def build_routes(
             status_page.render(
                 language=config.language.value,
                 t=translator.text,
-                page=build_page(current(), clock(), translator, config.timezone),
+                page=build_page(current(), _now(), translator, config.timezone),
             )
         )
 

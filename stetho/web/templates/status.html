@@ -10,7 +10,7 @@
 <body>
 <p id="refresh-failed" class="notice" role="alert" hidden>{{ t("page.refresh_failed") }}</p>
 <noscript><p class="notice">{{ t("page.no_script") }}</p></noscript>
-<main id="content">
+<main id="content" data-stetho-page>
 <header class="banner status-{{ page.status }}">
 <h1>{{ page.summary }}</h1>
 <p><span class="badge">{{ t("status." ~ page.status) }}</span>
@@ -21,7 +21,7 @@
 {% if page.problems %}
 <section>
 <h2>{{ t("page.problems") }}</h2>
-<div class="table-scroll">
+<div class="table-scroll" data-scroll="problems">
 <table id="problems">
 <thead><tr>
 {% for column in ("status", "source", "problem", "advice") %}
@@ -74,7 +74,7 @@
 <section>
 <details data-key="anomalies">
 <summary class="anomalies">{{ t("page.anomalies", count=page.anomalies | length) }}</summary>
-<div class="table-scroll">
+<div class="table-scroll" data-scroll="anomalies">
 <table>
 <thead><tr>
 {% for column in ("module", "source", "code", "detail", "received", "expected", "first_seen", "last_seen", "count") %}

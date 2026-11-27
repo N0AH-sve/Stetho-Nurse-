@@ -35,12 +35,18 @@ presents it), with automatic escaping. The page does not use the API.
 
 Every 30 seconds, and when the tab becomes visible again, `static/page.js` fetches the page,
 reads it with `DOMParser` and swaps its content, without `innerHTML`. What the reader opened,
-the sort order and the keyboard focus are kept.
+the sort order, the horizontal position of the tables and the keyboard focus on a column title or
+a fold are kept, without moving the page. Selected text is not kept. Only a page that carries the
+mark of STETHO is accepted.
 
 - **Failed refresh.** After an error, a refusal, an unexpected page or 10 seconds without an
-  answer, a warning is shown, the banner turns orange, the pills turn grey and the content fades,
-  so that old data does not look healthy. A later success removes the warning.
+  answer, a warning is shown, the banner turns orange and the pills turn grey,
+  so that old data does not look healthy. The warning stays at the top of the screen while
+  scrolling. A later success removes it.
 - **Stale report.** The server itself shows it as [out of date](api.md#reading-routes).
+- **Script not loaded.** **Limit:** if JavaScript is on but the script cannot be loaded or read,
+  the page does not refresh and says nothing. When the reader comes back to a tab, the old state
+  stays unmarked until the new page arrives, for 10 seconds at most.
 - **Without JavaScript**, a message asks to reload the page. **Limit:** such a page, once loaded,
   does not say that it grows old. Likewise, a browser that pauses the timer of a hidden tab
   updates it when the tab is shown again.
@@ -61,9 +67,17 @@ the keyboard, with a visible focus.
 problems, static files and their protection. It only reads the script.
 
 **The script has no automated test.** It was checked by hand in headless Chrome on made-up data:
-sorting, refresh keeping the open parts, sort and focus, the warning after a network error, a 401
-or an unexpected page, the return to normal, and a 390 pixel wide screen. Repeat this after a
+sorting, refresh keeping the open parts, sort, focus and scroll positions, the warning after a
+network error, a 401 or another page, even one with a `content` element, its place while
+scrolling, the return to normal, and a 390 pixel wide screen. Repeat this after a
 change of the script.
+
+## Open points
+
+- **Old text after a failed refresh.** The banner and the pills keep their words, such as
+  "Everything is working" and "OK", under the warning. Only their colour changes. Settle whether
+  the script should replace them.
+- **Script not loaded.** Settle whether the page should show a notice until the script hides it.
 
 ## Decisions
 

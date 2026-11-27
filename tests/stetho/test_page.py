@@ -246,6 +246,21 @@ def test_script_never_builds_html_from_text() -> None:
     assert 'fetch("./"' in script
 
 
+def test_ages_are_counted_from_the_time_of_the_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("stetho.web.routes._now", lambda: NOW.replace(hour=15))
+
+    page = page_of(published(run_probe(config())))
+
+    assert ">3 h ago</time>" in page
+
+
+def test_page_carries_the_mark_the_script_looks_for() -> None:
+    script = (STATIC / "page.js").read_text(encoding="utf-8")
+
+    assert '<main id="content" data-stetho-page>' in page_of(Api())
+    assert 'querySelector("main#content[data-stetho-page]")' in script
+
+
 def test_old_reading_time_grows_with_the_clock() -> None:
     translator = load_translator(Language.FR)
     report = run_probe(config())
