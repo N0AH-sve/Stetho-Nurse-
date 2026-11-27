@@ -4,8 +4,8 @@ Monitoring for [Hermes Agent](https://github.com/NousResearch/hermes-agent): see
 whether it works, get an alert when it breaks, and repair it with predefined actions. Hermes
 itself is neither modified nor upgraded, and no LLM is involved.
 
-> **Status: design stage.** The repository contains the development environment and the
-> documentation. No application code has been written yet.
+> **Status: early development.** The repository contains the development environment, the
+> documentation and the loading of the STETHO settings. Nothing can be run yet.
 
 ## How it works
 
@@ -62,6 +62,8 @@ make check   # lint, type check, tests
 .github/      continuous integration
 config/       example configuration of both services
 docs/         documentation
+stetho/       STETHO code
+tests/        tests and made-up Hermes data
 Makefile      development commands
 pyproject.toml, uv.lock   Python tools and locked versions
 ```
