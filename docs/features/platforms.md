@@ -23,7 +23,8 @@ command, or older than the [late threshold of the gateway](gateway.md#thresholds
 default. They are then `unknown`, without advice, action or detail.
 
 A state file that cannot be used is left to the `gateway` module, which reports why. If that
-module is disabled, this one reports it: `unknown`, with the anomaly.
+module is disabled, this one reports it when the file or its date cannot be used: `unknown`,
+assessed, with the anomalies of the file.
 
 ## Rules
 
@@ -40,7 +41,8 @@ each state and the repair.
 | Unknown state | `warn` | None |
 
 - **Attention.** With `needs_attention`, a platform is at least `warn`, even if `connected`,
-  `paused` or `disabled`.
+  `paused` or `disabled`, and is never advised to wait. A `needs_attention` that is not true or
+  false makes the card at least `unknown`.
 - **Delay.** It starts at `retrying_since` when Hermes gives a plausible date (between 2020 and
   5 minutes ahead). Otherwise, at the first reading where STETHO sees the platform waiting; this
   delay starts again when STETHO restarts.
@@ -71,7 +73,7 @@ when one gateway serves several profiles.
 | Entries, none from the running gateway | `unknown` |
 | `platforms` absent or not as expected, or an unusable entry or name | `unknown`; the other entries are read |
 | Profiles that cannot be listed | `unknown` |
-| Some gateway does not run normally | At least `unknown`; not assessed when nothing else explains it |
+| Some gateway does not run normally | At least `unknown`; not assessed when nothing else explains it. With an anomaly on another gateway, the card is assessed and says so |
 
 ## Anomalies
 

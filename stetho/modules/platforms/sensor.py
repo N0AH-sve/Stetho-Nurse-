@@ -86,10 +86,13 @@ class PlatformsSensor:
             if self._alive(reading.gateway, now):
                 cards.append(self._card(reading, now, several, waiting))
                 anomalies.extend(reading.anomalies)
-            elif reading.gateway is None and not self._config.modules.gateway.enabled:
-                # Nothing else would say why the file cannot be used.
-                cards.append(_Card((), True, "unusable", "check_data"))
-                anomalies.extend(reading.anomalies)
+            elif not self._config.modules.gateway.enabled and (
+                reading.gateway is None or reading.gateway.heartbeat is None
+            ):
+                # No gateway card would say why the file cannot be used.
+                items = self._not_assessed(reading, several).items
+                cards.append(_Card(items, True, "unusable", "check_data"))
+                anomalies.extend((*reading.file_anomalies, *reading.anomalies))
             else:
                 cards.append(self._not_assessed(reading, several))
         self._waiting_since = {
@@ -245,6 +248,9 @@ class PlatformsSensor:
         elif reason is not None:
             summary = text(f"platforms.summary.{reason.unknown_reason}")
             advice = text(f"platforms.advice.{reason.advice}")
+        elif down and not unchecked and anomalies:
+            summary = text("platforms.summary.partly_assessed")
+            advice = text("platforms.advice.check_data")
         elif down and not unchecked:
             summary = text("platforms.summary.not_assessed")
         else:

@@ -315,7 +315,6 @@ def test_unknown_state_is_a_warning_and_is_filtered(tmp_path: Path, value: objec
 @pytest.mark.parametrize(
     ("changes", "code"),
     [
-        ({"needs_attention": "yes"}, AnomalyCode.SCHEMA_CHANGED),
         ({"retrying_since": "soon"}, AnomalyCode.SCHEMA_CHANGED),
         ({"retrying_since": "2026-01-15T11:00:00"}, AnomalyCode.SCHEMA_CHANGED),
         ({"retrying_since": 12}, AnomalyCode.SCHEMA_CHANGED),
@@ -335,6 +334,59 @@ def test_unusual_value_is_reported_and_not_used(
     assert only(outcome.result).status is Status.WARN
     assert outcome.result.anomalies == (code,)
     assert MARKER not in repr(outcome)
+
+
+@pytest.mark.parametrize("state", ["connected", "disabled", "paused", "retrying"])
+@pytest.mark.parametrize("value", ["true", 1, None])
+def test_unreadable_request_for_attention_is_never_healthy(
+    tmp_path: Path, state: str, value: object
+) -> None:
+    result = card(tmp_path, {"discord": platform(state, needs_attention=value)})
+
+    assert result.status in (Status.UNKNOWN, Status.WARN)
+    assert result.assessed
+    assert result.anomalies == (AnomalyCode.SCHEMA_CHANGED,)
+
+
+def test_advice_never_says_to_wait_when_attention_is_asked(tmp_path: Path) -> None:
+    entry = platform("retrying", retrying_since=since(2), needs_attention=True)
+
+    item = only(card(tmp_path, {"discord": entry}))
+
+    assert (item.status, item.advice) == (
+        Status.WARN,
+        "Read the Hermes logs to see what this platform needs.",
+    )
+
+
+@pytest.mark.parametrize(
+    ("gateway", "code"),
+    [
+        ({"updated_at": "yesterday"}, AnomalyCode.SCHEMA_CHANGED),
+        ({"updated_at": "2027-01-01T00:00:00+00:00"}, AnomalyCode.IMPLAUSIBLE_VALUE),
+    ],
+)
+def test_without_the_gateway_module_the_cause_is_reported_here(
+    tmp_path: Path, gateway: dict[str, Any], code: AnomalyCode
+) -> None:
+    write(tmp_path, {"discord": platform()}, **gateway)
+
+    outcome = read(sensor(tmp_path, gateway={"enabled": False}))
+
+    assert (outcome.result.status, outcome.result.assessed) == (Status.UNKNOWN, True)
+    assert outcome.result.summary == "The platforms cannot be checked"
+    assert [(a.module, a.code) for a in outcome.anomalies] == [("platforms", code)]
+    assert only(outcome.result).assessed is False
+
+
+def test_without_the_gateway_module_a_missing_field_is_reported_here(tmp_path: Path) -> None:
+    document = {**PID, "gateway_state": "running", "platforms": {"discord": platform()}}
+    (tmp_path / "gateway_state.json").write_text(json.dumps(document), encoding="utf-8")
+
+    outcome = read(sensor(tmp_path, gateway={"enabled": False}))
+
+    assert (outcome.result.status, outcome.result.assessed) == (Status.UNKNOWN, True)
+    assert [(a.module, a.field) for a in outcome.anomalies] == [("platforms", "updated_at")]
 
 
 def test_free_text_never_appears(tmp_path: Path) -> None:
@@ -405,6 +457,8 @@ def test_card_stays_assessed_when_it_holds_an_anomaly(tmp_path: Path) -> None:
     result = read(sensor(tmp_path)).result
 
     assert (result.status, result.assessed) == (Status.UNKNOWN, True)
+    assert result.summary.startswith("Some platforms are not assessed")
+    assert result.advice == "Check the version of Hermes and that STETHO can read its data."
 
 
 def test_profiles_that_cannot_be_listed_prevent_a_healthy_card(tmp_path: Path) -> None:
@@ -443,7 +497,7 @@ def test_every_text_of_the_module_exists(language: Language) -> None:
     translator = load_translator(language)
     summaries = (
         "connected", "disabled", "paused", "broken", "unknown_state", "attention", "old",
-        "not_assessed", "unusable", "none_current", "nothing",
+        "not_assessed", "unusable", "none_current", "nothing", "partly_assessed",
     )  # fmt: skip
     advices = (
         "check_settings", "check_connection", "wait", "check_version", "check_attention",

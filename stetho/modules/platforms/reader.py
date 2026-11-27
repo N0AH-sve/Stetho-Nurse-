@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -67,6 +67,8 @@ class PlatformsReading:
     entries: tuple[PlatformEntry, ...]
     complete: bool  # False: the file, or part of its platforms, could not be used
     anomalies: tuple[Anomaly, ...]  # those of this module
+    # Those of the rest of the file, for when no `gateway` module reports them.
+    file_anomalies: tuple[Anomaly, ...] = ()
 
 
 class _Parser:
@@ -141,7 +143,8 @@ class _Parser:
         attention = value.get("needs_attention", False)
         if isinstance(attention, bool):
             return attention
-        self._add(AnomalyCode.SCHEMA_CHANGED, field="platforms.needs_attention")
+        # Whether the platform asks for something is unknown: the card cannot be healthy.
+        self._unusable("platforms.needs_attention")
         return False
 
     def _since(self, value: Mapping[str, object]) -> datetime | None:
@@ -172,18 +175,11 @@ def read_platforms(
 ) -> PlatformsReading:
     """Read the platforms of one profile. `now` must have a time zone."""
     read = read_state_file(data_dir, profile, adapter=adapters.gateway, now=now, sleep=sleep)
+    file_anomalies = tuple(replace(item, module=MODULE) for item in read.anomalies)
     if read.document is None:
-        # The same problem as the gateway sees, reported for this module too.
-        problems = tuple(
-            Anomaly(
-                code=item.code,
-                module=MODULE,
-                source=item.source,
-                reason=item.reason,
-            )
-            for item in read.anomalies
-        )
-        return PlatformsReading(profile, None, (), False, problems)
+        return PlatformsReading(profile, None, (), False, (), file_anomalies)
     parser = _Parser(read.source, adapters.platforms, now)
     entries = parser.entries(read.document)
-    return PlatformsReading(profile, read.state, entries, parser.complete, tuple(parser.anomalies))
+    return PlatformsReading(
+        profile, read.state, entries, parser.complete, tuple(parser.anomalies), file_anomalies
+    )

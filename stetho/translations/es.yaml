@@ -154,6 +154,7 @@ platforms:
     unknown_state: "En un estado que STETHO no conoce"
     attention: "Esta plataforma requiere atención"
     old: "Estado antiguo, sin comprobar"
+    partly_assessed: "Algunas plataformas no se han evaluado y hay un dato inesperado en las demás"
     not_assessed: "No evaluada: el gateway no funciona con normalidad"
     unusable: "No se pueden comprobar las plataformas"
     none_current: "Ningún estado de plataforma procede del gateway en marcha"

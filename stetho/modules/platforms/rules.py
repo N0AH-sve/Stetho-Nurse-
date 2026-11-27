@@ -1,7 +1,7 @@
 """Applies the rules of `rules.yaml` to one platform entry."""
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -85,6 +85,10 @@ def is_waiting(entry: PlatformEntry, rules: Rules) -> bool:
 def evaluate(entry: PlatformEntry, rules: Rules, *, now: datetime, since: datetime) -> Verdict:
     """The diagnosis of an entry of the running gateway. `since`: when the waiting began."""
     verdict = _of_state(entry, rules, now, since)
-    if entry.needs_attention and verdict.status in (Status.OK, Status.INFO):
+    if not entry.needs_attention:
+        return verdict
+    if verdict.status in (Status.OK, Status.INFO):
         return Verdict(Status.WARN, "attention", "check_attention")
+    if verdict.advice == "wait":
+        return replace(verdict, advice="check_attention")
     return verdict
