@@ -5,6 +5,7 @@ The application is called directly, with a report store and a clock controlled b
 
 import base64
 import json
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -209,7 +210,7 @@ def test_banner_names_the_most_severe_problem_with_its_advice() -> None:
 
     assert status["summary"] == "Hermes (gateway) : Hermes est arrêté"
     assert status["sensors"][0]["advice"] == (
-        "Lisez les journaux de Hermes, puis redémarrez le gateway de Hermes."
+        "Lisez les journaux de Hermes, puis démarrez à nouveau le gateway de Hermes."
     )
 
 
@@ -492,15 +493,17 @@ def test_sensor_is_not_found_before_the_first_pass() -> None:
 
 
 def test_requests_read_the_report_and_run_no_sensor(monkeypatch: pytest.MonkeyPatch) -> None:
-    api = Api()
-
     def never(*_arguments: object) -> None:
-        pytest.fail("a request ran the probe")
+        pytest.fail("a request ran the probe or a sensor")
 
+    api = Api()
+    report = run_probe(api.config)
+    api.store.publish(report)
     monkeypatch.setattr("stetho.probe.Probe.run_once", never)
+    monkeypatch.setattr("stetho.modules.gateway.sensor.GatewaySensor.read", never)
 
     for path in SERVED.values():
-        api.get(path)
+        assert api.get(path).status == 200
 
 
 def test_contract_is_served_as_json() -> None:
@@ -541,6 +544,11 @@ def test_documentation_escapes_the_contract(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_head_is_accepted_on_reading_routes() -> None:
     assert Api().get("/api/v1/status", method="HEAD").status == 200
+
+
+def test_default_clock_cannot_be_set_back() -> None:
+    # `time.time` follows the date of the server, which can change.
+    assert ReportStore()._monotonic is time.monotonic
 
 
 def test_report_time_does_not_depend_on_the_date_of_the_server() -> None:

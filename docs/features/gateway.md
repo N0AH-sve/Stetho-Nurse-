@@ -134,10 +134,17 @@ what to do by hand: no button exists yet, and it never relies on one.
 | State file unusable | Check the Hermes version and the read access of STETHO |
 | No gateway to check | Check the list of profiles in the settings |
 | Profiles that cannot be listed | Check the read access to the profiles folder |
+| Folder name that cannot be a profile name | Check the names of the folders |
 | `running` | None |
 
 With `desired_state: stopped`, every advice becomes that of the deliberate stop, so that nobody
-is told to start what the operator stopped. This is in the code, like the protection of actions.
+is told to start what the operator stopped. With an intent STETHO does not know, which could mean
+a deliberate pause, an advice to start or restart becomes: check the Hermes version and whether
+the stop was intended, then read the logs. Both are in the code, like the protection of actions.
+
+- **Secondary profile.** Its advice names the profile.
+- **Container restart.** It stops every gateway. An advice that speaks of it says so, for a
+  secondary profile and whenever there are several gateways.
 
 ### Thresholds
 

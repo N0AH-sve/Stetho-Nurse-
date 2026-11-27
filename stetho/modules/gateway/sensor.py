@@ -145,6 +145,26 @@ class GatewaySensor:
     def _advice(self, key: str | None) -> str | None:
         return None if key is None else self._translator.text(f"gateway.advice.{key}")
 
+    def _gateway_advice(self, diagnosis: _Diagnosis, *, several: bool) -> str | None:
+        """The advice of one gateway, saying which one and what a restart would touch."""
+        advice = self._advice(diagnosis.verdict.advice)
+        if advice is None:
+            return None
+        secondary = diagnosis.profile != ROOT_PROFILE
+        # Restarting the container stops every gateway, whichever one has the problem.
+        if diagnosis.verdict.advice == "check_container" and (secondary or several):
+            advice = f"{advice} {self._translator.text('gateway.advice.restarts_all')}"
+        if secondary:
+            advice = self._translator.text(
+                "gateway.advice.of_profile", name=self._label(diagnosis.profile), advice=advice
+            )
+        return advice
+
+    def _unchecked_advice(self, global_anomalies: tuple[Anomaly, ...]) -> str | None:
+        unreadable = any(item.code is AnomalyCode.SOURCE_UNREADABLE for item in global_anomalies)
+        # Otherwise the folder was listed, but a name in it cannot be used.
+        return self._advice("check_profiles_access" if unreadable else "check_profile_names")
+
     def _actions(self, diagnosis: _Diagnosis) -> tuple[str, ...]:
         # An action names no profile: NURSE would act on the main one.
         return diagnosis.verdict.actions if diagnosis.profile == ROOT_PROFILE else ()
@@ -180,20 +200,20 @@ class GatewaySensor:
                     label=self._label(d.profile),
                     status=d.verdict.status,
                     summary=d.summary,
-                    advice=self._advice(d.verdict.advice),
+                    advice=self._gateway_advice(d, several=True),
                     details=d.details,
                     actions=self._actions(d),
                 )
                 for d in diagnoses
             )
         if worst is not None and status is not Status.OK:
-            advice = self._advice(worst.verdict.advice)
+            advice = self._gateway_advice(worst, several=len(diagnoses) > 1)
         if not diagnoses:
             summary = text("gateway.summary.no_gateway")
             advice = self._advice("check_profile_list")
         elif worst is None:
             summary = text("gateway.summary.profiles_unchecked")
-            advice = self._advice("check_profiles_access")
+            advice = self._unchecked_advice(global_anomalies)
         elif len(diagnoses) == 1:
             summary = worst.summary
         elif status is Status.OK:

@@ -310,6 +310,30 @@ def test_no_advice_to_start_what_was_stopped_on_purpose(changes: dict[str, Any])
     assert judge(reading(desired_state="stopped", **changes)).advice == "deliberate_stop"
 
 
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"state": "stopped"},
+        {"state": "startup_failed"},
+        {"state": "degraded", "exit_reason": "shutdown_watchdog"},
+        {"age": 3600},
+        {"age": 3600, "command": True},
+    ],
+)
+def test_no_advice_to_start_when_the_intent_cannot_be_read(changes: dict[str, Any]) -> None:
+    assert judge(reading(desired_state_unrecognised=True, **changes)).advice == "check_intent"
+
+
+@pytest.mark.parametrize(
+    ("changes", "advice"),
+    [({}, None), ({"state": "degraded"}, "check_platforms"), ({"age": 150}, "wait_and_check_load")],
+)
+def test_other_advice_stays_when_the_intent_cannot_be_read(
+    changes: dict[str, Any], advice: str | None
+) -> None:
+    assert judge(reading(desired_state_unrecognised=True, **changes)).advice == advice
+
+
 def test_healthy_gateway_stopped_on_purpose_has_no_advice() -> None:
     assert judge(reading(desired_state="stopped")).advice is None
 
@@ -339,8 +363,10 @@ def test_every_advice_has_a_text(language: Language) -> None:
     verdicts = [rule.verdict for rule in RULES.rules] + list(RULES.without_state.values())
     keys = {v.advice for v in verdicts if v.advice}
 
-    for key in keys | {"check_profile_list", "check_profiles_access"}:
+    others = {"check_intent", "check_profile_list", "check_profiles_access"}
+    for key in keys | others | {"check_profile_names", "restarts_all"}:
         assert translator.text(f"gateway.advice.{key}")
+    assert translator.placeholders("gateway.advice.of_profile") == {"name", "advice"}
 
 
 def break_rules(document: dict[str, Any], path: str, value: object) -> None:

@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -210,28 +211,79 @@ def test_card_and_items_carry_their_advice(tmp_path: Path) -> None:
 
     result = result_of(tmp_path)
 
-    stopped = "Read the Hermes logs, then start the Hermes gateway again."
+    stopped = "Profile work: Read the Hermes logs, then start the Hermes gateway again."
     assert [item.advice for item in result.items] == [None, stopped]
     assert result.advice == stopped
 
 
-@pytest.mark.parametrize(
-    ("served", "profiles", "advice"),
-    [
-        (["work"], ["work"], "Check the list of profiles in the STETHO settings."),
-        ([], "auto", "Check that STETHO can read the profiles folder of Hermes."),
-    ],
+CHECK_CONTAINER = (
+    "Check that the Hermes container is running and read its logs. Restart it if needed."
 )
-def test_advice_when_something_cannot_be_checked(
-    tmp_path: Path, served: list[str], profiles: object, advice: str
-) -> None:
-    write_state(tmp_path, served_profiles=served)
-    if profiles == "auto":
-        write_state(tmp_path / "profiles" / "not a name")
+RESTARTS_ALL = "Restarting the container interrupts every gateway, including those that work."
+SILENT = (NOW - timedelta(hours=1)).isoformat()
 
-    result = read(sensor(tmp_path, profiles=profiles)).result
 
-    assert result.advice == advice
+def test_silent_secondary_gateway_warns_what_a_restart_touches(tmp_path: Path) -> None:
+    two_gateways(tmp_path, updated_at=SILENT)
+
+    result = result_of(tmp_path)
+
+    expected = f"Profile work: {CHECK_CONTAINER} {RESTARTS_ALL}"
+    assert (result.advice, result.items[1].advice) == (expected, expected)
+
+
+def test_silent_main_gateway_warns_when_there_are_others(tmp_path: Path) -> None:
+    two_gateways(tmp_path)
+    write_state(tmp_path, updated_at=SILENT)
+
+    result = result_of(tmp_path)
+
+    assert result.advice == f"{CHECK_CONTAINER} {RESTARTS_ALL}"
+
+
+def test_only_main_gateway_needs_no_warning(tmp_path: Path) -> None:
+    write_state(tmp_path, updated_at=SILENT)
+
+    assert result_of(tmp_path).advice == CHECK_CONTAINER
+
+
+def test_single_secondary_gateway_is_named_and_warned_about(tmp_path: Path) -> None:
+    two_gateways(tmp_path, updated_at=SILENT)
+
+    result = read(sensor(tmp_path, profiles=["work"])).result
+
+    assert result.advice == f"Profile work: {CHECK_CONTAINER} {RESTARTS_ALL}"
+
+
+def test_advice_when_there_is_no_gateway_to_check(tmp_path: Path) -> None:
+    write_state(tmp_path, served_profiles=["work"])
+
+    result = read(sensor(tmp_path, profiles=["work"])).result
+
+    assert result.advice == "Check the list of profiles in the STETHO settings."
+
+
+def test_advice_for_a_folder_name_that_cannot_be_a_profile(tmp_path: Path) -> None:
+    write_state(tmp_path)
+    write_state(tmp_path / "profiles" / "not a name")
+
+    assert result_of(tmp_path).advice == (
+        "Check the names of the folders in the Hermes profiles folder: one cannot be a profile "
+        "name."
+    )
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can read every folder")
+def test_advice_when_the_profiles_cannot_be_listed(tmp_path: Path) -> None:
+    write_state(tmp_path)
+    (tmp_path / "profiles").mkdir()
+    (tmp_path / "profiles").chmod(0)
+    try:
+        result = result_of(tmp_path)
+    finally:
+        (tmp_path / "profiles").chmod(0o700)
+
+    assert result.advice == "Check that STETHO can read the profiles folder of Hermes."
 
 
 def test_only_the_main_profile_gets_actions(tmp_path: Path) -> None:

@@ -79,6 +79,10 @@ gateway:
     check_running_and_mount: "Check that Hermes is running and that its data folder is correctly mounted."
     check_version_and_access: "Check the version of Hermes and that STETHO can read its data."
     check_profile_list: "Check the list of profiles in the STETHO settings."
+    check_intent: "Check the version of Hermes and whether this stop was intended, then read the logs."
+    check_profile_names: "Check the names of the folders in the Hermes profiles folder: one cannot be a profile name."
+    restarts_all: "Restarting the container interrupts every gateway, including those that work."
+    of_profile: "Profile {name}: {advice}"
     check_profiles_access: "Check that STETHO can read the profiles folder of Hermes."
   detail:
     last_sign_of_life: "Last sign of life"

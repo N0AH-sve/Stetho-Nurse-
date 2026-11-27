@@ -17,6 +17,8 @@ _CONDITIONS = frozenset(
     {"state", "exit_reason", "desired_state", "written_by_command", "older_than", "no_date"}
 )
 _WITHOUT_STATE = ("missing", "missing_too_long", "unusable")
+# The advices that tell to start or to restart something.
+_STARTING_ADVICE = frozenset({"start_again", "fix_then_start", "check_container"})
 
 
 class RulesError(Exception):
@@ -197,6 +199,9 @@ def evaluate(
     if state.desired_state == "stopped" and verdict.advice is not None:
         # Never advise to start again what the operator stopped.
         verdict = replace(verdict, advice="deliberate_stop")
+    if state.desired_state_unrecognised and verdict.advice in _STARTING_ADVICE:
+        # The unknown value could mean a deliberate pause.
+        verdict = replace(verdict, advice="check_intent")
     # A value STETHO does not know is at least a warning.
     unexpected = any(item.code is AnomalyCode.UNEXPECTED_VALUE for item in reading.anomalies)
     if unexpected and verdict.status in (Status.OK, Status.UNKNOWN):

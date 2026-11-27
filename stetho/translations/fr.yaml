@@ -67,9 +67,9 @@ gateway:
     all_online: "Tous les gateways sont en ligne ({count})"
     of_profile: "{name} : {summary}"
   advice:
-    deliberate_stop: "Si cet arrêt n'est plus voulu, redémarrez Hermes."
-    start_again: "Lisez les journaux de Hermes, puis redémarrez le gateway de Hermes."
-    fix_then_start: "Lisez les journaux de Hermes, corrigez la cause, puis redémarrez le gateway."
+    deliberate_stop: "Si cet arrêt n'est plus voulu, démarrez à nouveau Hermes."
+    start_again: "Lisez les journaux de Hermes, puis démarrez à nouveau le gateway de Hermes."
+    fix_then_start: "Lisez les journaux de Hermes, corrigez la cause, puis démarrez à nouveau le gateway."
     check_container: "Vérifiez que le conteneur Hermes tourne et lisez ses journaux. Redémarrez-le si besoin."
     wait: "Attendez quelques minutes. Si rien ne change, lisez les journaux de Hermes."
     wait_and_check_load: "Attendez quelques minutes. Si cela dure, lisez les journaux de Hermes et vérifiez la charge du serveur."
@@ -79,6 +79,10 @@ gateway:
     check_running_and_mount: "Vérifiez que Hermes tourne et que son dossier de données est bien monté."
     check_version_and_access: "Vérifiez la version de Hermes et que STETHO peut lire ses données."
     check_profile_list: "Vérifiez la liste des profils dans les réglages de STETHO."
+    check_intent: "Vérifiez la version de Hermes et si cet arrêt était voulu, puis lisez les journaux."
+    check_profile_names: "Vérifiez les noms des dossiers dans le dossier des profils de Hermes : l'un d'eux ne peut pas être un nom de profil."
+    restarts_all: "Redémarrer le conteneur interrompt tous les gateways, y compris ceux qui fonctionnent."
+    of_profile: "Profil {name} : {advice}"
     check_profiles_access: "Vérifiez que STETHO peut lire le dossier des profils de Hermes."
   detail:
     last_sign_of_life: "Dernier signe de vie"

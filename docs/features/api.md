@@ -63,6 +63,10 @@ memory: no request runs a sensor. `stetho/web/report.py` shapes the answers.
 - **Staleness** is measured with a clock that cannot be set back, from the time a report arrives:
   changing the date of the server hides nothing. With the example settings, a report is stale
   after more than 90 s. Titles, labels, times and anomaly codes are kept.
+- **Limits of staleness.** The clock used does not advance while the server is suspended: after
+  it resumes, an old report can look fresh until the next one arrives, normally within an
+  interval and the time of a pass. When the sensor time limit is more than twice the interval, a
+  report may be shown as stale for a moment when a sensor first exceeds its limit.
 - **Documentation page.** `/api/docs` is made from the contract when STETHO starts, without
   script, style or link. Its title and labels are in the language of the installation; the
   descriptions come from the contract and are in English.
