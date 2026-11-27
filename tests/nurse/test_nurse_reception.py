@@ -15,14 +15,13 @@ from openapi_schema_validator import OAS31Validator, oas31_format_checker
 from nurse import __main__ as program
 from nurse import records
 from nurse.reception import (
-    RX_ID,
     HermesCheck,
     Reception,
     limit_reached,
     parse_prescription,
     refuse_unchecked,
 )
-from nurse.records import Launch, State, StateError, load_state
+from nurse.records import RX_ID, Launch, State, StateError, load_state
 from nurse.settings import Settings, load_catalogue, load_settings
 from stetho.yamlfile import load_yaml
 
@@ -298,18 +297,33 @@ def test_a_replay_is_known_even_when_its_result_is_gone(tmp_path: Path) -> None:
     assert result(tmp_path)["refusal_reason"] == "duplicate"
 
 
+def with_state(**changes: object) -> bytes:
+    """A state that is right but for the given part."""
+    document: dict[str, object] = {
+        "handled": {},
+        "launches": [],
+        "recent": [],
+        "actions": [],
+        "pending": {},
+    }
+    return json.dumps({**document, **changes}).encode()
+
+
 @pytest.mark.parametrize(
     "content",
     [
         b"{",
         b"[]",
         b"{}",
-        b'{"handled": {"a": "x"}, "launches": [], "recent": []}',
-        b'{"handled": {}, "launches": [{}], "recent": []}',
-        b'{"handled": {}, "launches": {}, "recent": []}',
-        b'{"handled": {}, "launches": [], "recent": [1]}',
-        b'{"handled": {}, "launches": [{"at": true, "action": "A", "origin": "manual",'
-        b' "restart": false}], "recent": []}',
+        with_state(handled={"a": "x"}),
+        with_state(launches=[{}]),
+        with_state(launches={}),
+        with_state(recent=[1]),
+        with_state(actions=[{"prescription": None, "result": 1}]),
+        with_state(pending=[]),
+        with_state(pending={"../x": {"prescription": {}, "started_at": "x"}}),
+        with_state(pending={"a": {"prescription": {}}}),
+        with_state(launches=[{"at": True, "action": "A", "origin": "manual", "restart": False}]),
         b" " * (4 * 1024 * 1024 + 1),
     ],
 )
@@ -374,17 +388,21 @@ def test_a_request_named_like_the_log_cannot_replace_it(tmp_path: Path) -> None:
     assert len(log(tmp_path)) == 1
 
 
-def test_a_flood_of_invalid_files_does_not_hide_real_actions() -> None:
-    state = State()
-    state.remember({"prescription": {"rx_id": "real"}, "result": {}})
-    for _ in range(200):
-        state.remember({"prescription": None, "result": {}})
+def entry(rx_id: str, finished: str, status: str = "refused") -> dict[str, Any]:
+    return {
+        "prescription": {"rx_id": rx_id},
+        "result": {"rx_id": rx_id, "status": status, "finished_at": finished},
+    }
 
-    assert len(state.recent) == 21
-    assert state.recent[-1]["prescription"] == {"rx_id": "real"}
-    for number in range(150):
-        state.remember({"prescription": {"rx_id": str(number)}, "result": {}})
-    assert len(state.recent) == 100
+
+def test_only_the_last_refusals_are_kept_apart_from_the_actions() -> None:
+    state = State(actions=[entry("real", "2026-01-15T10:00:00Z", "done")])
+    for number in range(200):
+        state.remember(entry(str(number), "2026-01-15T11:00:00Z"))
+
+    assert len(state.recent) == 20
+    assert len(state.log()) == 21
+    assert state.log()[-1]["result"]["rx_id"] == "real"
 
 
 def test_old_identifiers_and_launches_are_forgotten() -> None:
@@ -644,7 +662,7 @@ def test_failed_save_leaves_no_trace_for_the_next_request(
 
 
 def test_too_many_stuck_files_stop_the_handling(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     def broken(*_: object) -> None:
         raise OSError
@@ -655,7 +673,8 @@ def test_too_many_stuck_files_stop_the_handling(
     for number in range(50):
         drop(tmp_path, b"", f"r{number:02}.json")
 
-    assert [service.run_once(), service.run_once()] == [20, 0]
+    assert [service.run_once(), service.run_once(), service.run_once()] == [20, 0, 0]
+    assert caplog.text.count("nothing more is tried") == 1
     for number in range(20):
         (tmp_path / "prescriptions" / f"r{number:02}.json").unlink()
     assert service.run_once() == 20
@@ -677,8 +696,9 @@ def test_full_state_refuses_and_stays_loadable(
 
 def test_largest_state_can_be_loaded_again(tmp_path: Path) -> None:
     handled = {f"{number:064}": EPOCH for number in range(records.MAX_HANDLED)}
-    entry = {"prescription": {"requested_by": "\U0001f600" * 64}, "result": {"rx_id": "a" * 64}}
-    records.save_state(tmp_path, State(handled, [], [entry] * records.LOG_ENTRIES))
+    largest = {"prescription": {"requested_by": "\U0001f600" * 64}, "result": {"rx_id": "a" * 64}}
+    state = State(handled, [], [largest] * records.LOG_REFUSALS, [largest] * records.LOG_ACTIONS)
+    records.save_state(tmp_path, state)
 
     assert len(load_state(tmp_path).handled) == records.MAX_HANDLED
 
@@ -721,3 +741,189 @@ def test_half_written_files_are_removed(tmp_path: Path) -> None:
     records.remove_temporary_files(tmp_path)
 
     assert [path.name for path in tmp_path.iterdir()] == ["kept.json"]
+
+
+STARTED = "2026-01-15T11:59:00Z"
+LAUNCH = Launch(EPOCH, "RERUN_JOB", "manual", False)
+
+
+def interrupted(tmp_path: Path) -> State:
+    """An action that NURSE had started when it stopped."""
+    reception(tmp_path)
+    state = State()
+    records.start_action(tmp_path / "log", state, request(), LAUNCH, STARTED)
+    return state
+
+
+def test_a_started_action_is_remembered_before_it_runs(tmp_path: Path) -> None:
+    interrupted(tmp_path)
+
+    state = load_state(tmp_path / "log")
+
+    assert list(state.pending) == list(state.handled) == ["rx-1"]
+    assert state.launches == [Launch(EPOCH, "RERUN_JOB", "manual", False)]
+
+
+def test_nothing_changes_when_a_start_cannot_be_saved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(*_: object) -> None:
+        raise PermissionError
+
+    monkeypatch.setattr(records, "save_state", broken)
+    state = State()
+
+    with pytest.raises(PermissionError):
+        records.start_action(tmp_path, state, request(), LAUNCH, STARTED)
+
+    assert state == State()
+
+
+def test_interrupted_action_is_unverified_and_never_run_again(tmp_path: Path) -> None:
+    interrupted(tmp_path)
+    service = reception(tmp_path, allow)
+    path = drop(tmp_path, request())  # the file was still there
+
+    service.recover()
+
+    first = result(tmp_path)
+    assert (first["status"], first["verified"], first["anomaly"]) == (
+        "unverified",
+        False,
+        "action_unverified",
+    )
+    assert first["started_at"] == STARTED
+    check_schema("PrescriptionResult", first)
+    check_schema("ActionLogEntry", log(tmp_path)[0])
+    service.run_once()
+    assert not path.exists()
+    assert result(tmp_path) == first
+    state = load_state(tmp_path / "log")
+    assert (state.pending, len(state.actions), len(state.launches)) == ({}, 1, 1)
+    assert len((tmp_path / "log" / "actions.jsonl").read_text().splitlines()) == 1
+
+
+@pytest.mark.parametrize(
+    ("written", "expected"),
+    [
+        ({"rx_id": "rx-1", "status": "done"}, "done"),
+        ({"rx_id": "rx-1", "status": "refused"}, "unverified"),
+        ({"rx_id": "rx-1", "status": "queued"}, "unverified"),
+        ({"rx_id": "other", "status": "done"}, "unverified"),
+        ([], "unverified"),
+    ],
+)
+def test_answer_written_before_the_interruption_is_kept(
+    tmp_path: Path, written: object, expected: str
+) -> None:
+    interrupted(tmp_path)
+    (tmp_path / "results" / "rx-1.json").write_text(json.dumps(written))
+
+    reception(tmp_path).recover()
+
+    assert result(tmp_path)["status"] == expected
+
+
+def test_a_pending_action_gets_no_other_answer(tmp_path: Path) -> None:
+    interrupted(tmp_path)
+    drop(tmp_path, request())
+
+    reception(tmp_path, allow).run_once()
+
+    assert not (tmp_path / "results" / "rx-1.json").exists()
+
+
+def test_recovery_with_an_unusable_state_changes_nothing(tmp_path: Path) -> None:
+    service = reception(tmp_path)
+    (tmp_path / "log" / "state.json").write_bytes(b"{")
+
+    service.recover()
+
+    assert list((tmp_path / "results").iterdir()) == []
+
+
+def test_program_does_not_start_when_recovery_cannot_be_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(_: Reception) -> None:
+        raise OSError
+
+    configured = settings(tmp_path)
+    monkeypatch.setattr(program, "load_settings", lambda _: configured)
+    monkeypatch.setattr(program, "load_catalogue", lambda _: ACTIONS)
+    monkeypatch.setattr(Reception, "recover", broken)
+    monkeypatch.setattr("signal.signal", lambda *_: None)
+
+    assert program.main(["--config", "unused"]) == 2
+    os.close(records.lock_instance(configured.log_dir))
+
+
+def test_a_flood_of_refusals_cannot_erase_an_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(records, "MAX_RESULTS", 5)
+    monkeypatch.setattr(records, "JOURNAL_BYTES", 2000)
+    interrupted(tmp_path)
+    service = reception(tmp_path, allow)
+    service.recover()
+    for number in range(60):
+        drop(tmp_path, request(f"f{number:02}", action="DELETE_ALL"), f"f{number:02}.json")
+
+    while service.run_once():
+        pass
+
+    assert result(tmp_path)["status"] == "unverified"
+    assert len(list((tmp_path / "results").iterdir())) == 5 + 2  # the action and the log
+    assert [e["result"]["rx_id"] for e in log(tmp_path)].count("rx-1") == 1
+    assert '"rx-1"' in (tmp_path / "log" / "actions.jsonl").read_text()
+
+
+def test_folder_is_synced_once_the_new_file_is_in_place(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    synced: list[tuple[Path, bool]] = []
+    monkeypatch.setattr(
+        records, "_sync_folder", lambda f: synced.append((f, (f / "state.json").exists()))
+    )
+
+    records.save_state(tmp_path, State())
+
+    assert synced == [(tmp_path, True)]
+
+
+@pytest.mark.parametrize("held", [False, True])
+def test_program_cleans_its_folders_only_with_the_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, held: bool
+) -> None:
+    configured = settings(tmp_path)
+    left = [folder / ".tmp-x" for folder in (configured.log_dir, configured.results_dir)]
+    for path in left:
+        path.write_text("x")
+    monkeypatch.setattr(program, "load_settings", lambda _: configured)
+    monkeypatch.setattr(program, "load_catalogue", lambda _: ACTIONS)
+    monkeypatch.setattr("signal.signal", lambda *_: None)
+    stop = threading.Event()
+    stop.set()
+    lock = records.lock_instance(configured.log_dir) if held else None
+
+    try:
+        assert program.main(["--config", "unused"], stop) == (2 if held else 0)
+    finally:
+        if lock is not None:
+            os.close(lock)
+
+    assert [path.exists() for path in left] == [held, held]
+
+
+def test_program_does_not_start_when_it_cannot_clean(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    configured = settings(tmp_path)
+    (configured.results_dir / ".tmp-folder").mkdir()
+    monkeypatch.setattr(program, "load_settings", lambda _: configured)
+    monkeypatch.setattr(program, "load_catalogue", lambda _: ACTIONS)
+    monkeypatch.setattr("signal.signal", lambda *_: None)
+
+    assert program.main(["--config", "unused"]) == 2
+    assert "IsADirectoryError" in caplog.text
+    assert str(tmp_path) not in caplog.text

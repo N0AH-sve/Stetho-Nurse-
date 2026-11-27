@@ -15,12 +15,14 @@ from datetime import UTC, datetime, timedelta
 
 from nurse.records import (
     MAX_HANDLED,
+    RX_ID,
     Entry,
     State,
     StateError,
     append_journal,
     load_state,
     prune_results,
+    recover_actions,
     result_path,
     save_state,
     write_log,
@@ -30,7 +32,6 @@ from nurse.settings import ACTION_CODE, ACTION_TARGET, Action, Settings
 
 _LOG = logging.getLogger("nurse")
 # The same patterns as `Prescription` in the API.
-RX_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_:.-]{0,63}")
 _REQUESTER = re.compile(r"[^\x00-\x1f\x7f-\x9f\ud800-\udfff]{1,64}")
 _TIMESTAMP = re.compile(
     r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?"
@@ -160,7 +161,17 @@ class Reception:
         self._check_hermes = check_hermes
         self._stuck: set[str] = set()  # files that could not be handled: not tried every second
         self._pruned_at: datetime | None = None
+        self._full_of_stuck = False
         self._state_failed = False  # said once, not every second
+
+    def recover(self) -> None:
+        """To call before the first request: answers what an interruption left unanswered."""
+        state = self._load()
+        if state is None:
+            return
+        directories = self._settings.log_dir, self._settings.results_dir
+        for rx_id in recover_actions(*directories, state, _timestamp(self._clock())):
+            _LOG.warning("action %s was interrupted: its effect is not verified", rx_id)
 
     def run_once(self) -> int:
         """Handles a few waiting requests and returns their number."""
@@ -192,7 +203,12 @@ class Reception:
         """Old results go even when no request arrives."""
         now = self._clock()
         if handled or self._pruned_at is None or abs(now - self._pruned_at) >= _PRUNE_EVERY:
-            prune_results(self._settings.results_dir, now.timestamp())
+            state = self._load()
+            # Without a state, the actions are unknown: no result is then removed.
+            if state is not None:
+                started = {entry["result"]["rx_id"] for entry in state.actions}
+                started.update(state.pending)
+                prune_results(self._settings.results_dir, now.timestamp(), frozenset(started))
             self._pruned_at = now
 
     def _waiting(self, folder: int) -> list[str]:
@@ -219,7 +235,11 @@ class Reception:
         found = heapq.nsmallest(MAX_PER_PASS, candidates())
         self._stuck = still_stuck
         # With too many files that cannot be handled, nothing more is tried.
-        return [] if len(still_stuck) >= MAX_STUCK else found
+        full = len(still_stuck) >= MAX_STUCK
+        if full and not self._full_of_stuck:
+            _LOG.error("too many requests cannot be handled: nothing more is tried")
+        self._full_of_stuck = full
+        return [] if full else found
 
     def _handle(self, folder: int, name: str, state: State | None) -> None:
         rx_id = name.removesuffix(_SUFFIX)
@@ -239,6 +259,8 @@ class Reception:
     ) -> None:
         seconds = int(now.timestamp())
         answered = result_path(self._settings.results_dir, rx_id).exists()
+        if state is not None and rx_id in state.pending:
+            answered = True  # its answer is the one of the action
         if state is not None:
             state.forget(seconds)
             if len(state.handled) >= MAX_HANDLED:
@@ -268,7 +290,7 @@ class Reception:
         if not answered:
             write_result(self._settings.results_dir, entry["result"])
         if state is not None:
-            write_log(self._settings.results_dir, state.recent)
+            write_log(self._settings.results_dir, state.log())
         _LOG.info("request %s refused: %s", rx_id, reason)
 
     def _refusal(self, request: Prescription, state: State, now: datetime) -> str:
@@ -293,6 +315,10 @@ class Reception:
         return reason or "execution_disabled"
 
 
+def _timestamp(moment: datetime) -> str:
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _refused(rx_id: str, reason: str, now: datetime) -> Entry:
     return {
         "rx_id": rx_id,
@@ -302,6 +328,6 @@ def _refused(rx_id: str, reason: str, now: datetime) -> Entry:
         "output_excerpt": None,
         "anomaly": None,
         "started_at": None,
-        "finished_at": now.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "finished_at": _timestamp(now),
         "verified": None,
     }

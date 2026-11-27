@@ -156,9 +156,9 @@ content. It never asks to write. What cannot be read or understood gives `state_
 - A database without `-wal` or `-shm` is opened as `immutable`, and the reading is dropped if
   the file changes meanwhile; otherwise it is opened with `mode=ro`.
 
-**To settle before deployment:** with `mode=ro` on a folder it may write, SQLite can create or
-change the `-shm` and `-wal` files. Only a read-only mount of the data, not yet tried, would
-prevent it.
+**Read-only mount required:** with `mode=ro` on a folder it may write, SQLite can create or change
+the `-shm` and `-wal` files. The [deployment](deployment.md#decisions) must give a verified
+read-only mount, which has not been tried.
 
 **Limits.** Nothing was tried on a real installation. The environment variables of Hermes that
 move the boards are not seen. Hermes may change
@@ -169,27 +169,34 @@ unfinished after a crash blocks a rerun until Hermes clears it.
 
 | Where | What |
 | --- | --- |
-| `log_dir/state.json` | Handled identifiers, started actions and the recent entries. Saved before anything is answered. A missing file is a first start; an unusable one refuses everything and is never overwritten |
-| `log_dir/journal.jsonl` | One line per handled request: 5 files of 1 MiB at most |
-| `results_dir/<rx_id>.json` | The result, readable by the group. The first answer to an identifier is never replaced. Removed after 7 days, or when there are more than 1000 |
-| `results_dir/_log.json` | The last 100 actions, the most recent first, with 20 invalid requests at most. No identifier can take this name |
+| `log_dir/state.json` | Handled identifiers, started and pending actions, and the last entries. Saved before anything is answered. A missing file is a first start; an unusable one refuses everything and is never overwritten |
+| `log_dir/journal.jsonl` | One line per refused request: 5 files of 1 MiB at most |
+| `log_dir/actions.jsonl` | One line per ended action, with the same limit. A refusal never writes here |
+| `results_dir/<rx_id>.json` | The result, readable by the group. The first answer to an identifier is never replaced. Removed after 7 days. Above 1000, the oldest refusals are removed; the results of the actions in the log do not count |
+| `results_dir/_log.json` | The last 80 actions and the last 20 refused requests, the most recent first. No identifier can take this name |
 
 Results and the state are written atomically, and their folder is synced. Only one NURSE can run on
 a private folder: it holds a lock there, and removes at startup the files left half written. With
 20 000 identifiers to remember, requests are refused with `state_unreadable` until some are
-forgotten. With 1000 files that cannot be handled, nothing more is tried. Old results are removed
-even without any request. When the state or the journal cannot be written,
+forgotten: these refusals are neither remembered nor added to `_log.json`. With 1000 files that
+cannot be handled, nothing more is tried, and NURSE logs it. Old results are removed
+even without any request, as long as the prescription folder can be read. When the state or the journal cannot be written,
 or a request cannot be deleted, the file is not tried again until NURSE restarts or the file
 goes away. **Limits:** with an unusable state, `_log.json` is not updated. A stopped NURSE
 leaves the requests waiting.
 
-**Not settled, to be done before any action runs:**
+### Traces and interruptions
 
-- **A flood erases the trace.** Well-formed requests that are refused are not capped: at full rate
-  they push real entries out of `_log.json` within seconds, and out of the journal within minutes.
-  Older results are pushed out too.
-- **Interrupted request.** If NURSE stops after saving the state and before answering, the request
-  is then answered `duplicate`, as if it had been refused.
+- **A flood of refused requests cannot erase the trace of an action:** actions have their own
+  journal, their own place in the log, and their results do not count in the limit of 1000.
+  **Limit:** it can still push other refusals out within seconds.
+- **An action is recorded before it is run,** and stays pending until its answer is written. When
+  NURSE starts, a pending action keeps the answer already written, or is answered `unverified`.
+  It is never run again. If this cannot be written, NURSE does not start.
+- A request that was only being refused when NURSE stopped is answered `duplicate`: nothing was
+  run.
+
+No action is run yet: only tests record one.
 
 ## Decided, not implemented yet
 

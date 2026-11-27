@@ -7,6 +7,7 @@ them. The results directory is read by STETHO.
 import fcntl
 import json
 import os
+import re
 import tempfile
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
@@ -21,17 +22,23 @@ RESULT_SECONDS = int(timedelta(days=7).total_seconds())
 MAX_RESULTS = 1000  # a flood of requests must not fill the disk
 # Above what the accepted rate can reach in 10 minutes. It keeps the state loadable.
 MAX_HANDLED = 20_000
-LOG_ENTRIES = 100
-LOG_INVALID_ENTRIES = 20  # a flood of invalid files must not hide the real actions
+# The public log shows the started actions and, apart from them so that a flood of refused
+# requests cannot hide any, the last refusals.
+LOG_ACTIONS = 80
+LOG_REFUSALS = 20
 JOURNAL_BYTES = 1024 * 1024
 JOURNAL_FILES = 5
 _MAX_STATE_BYTES = 4 * 1024 * 1024
 STATE_NAME = "state.json"
-JOURNAL_NAME = "journal.jsonl"
+JOURNAL_NAME = "journal.jsonl"  # the refused requests
+ACTIONS_NAME = "actions.jsonl"  # the started actions: refusals never reach this journal
 # A request identifier cannot start with "_": no result can take this name.
 LOG_NAME = "_log.json"
 _TEMPORARY = ".tmp-"
 LOCK_NAME = "lock"
+
+# The same pattern as `PrescriptionId` in the API. An identifier becomes a file name.
+RX_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_:.-]{0,63}")
 
 Entry = dict[str, Any]  # `{"prescription": ... | None, "result": ...}`
 
@@ -54,7 +61,9 @@ class Launch:
 class State:
     handled: dict[str, int] = field(default_factory=dict)  # rx_id to the time it was handled
     launches: list[Launch] = field(default_factory=list)
-    recent: list[Entry] = field(default_factory=list)  # the most recent first
+    recent: list[Entry] = field(default_factory=list)  # refusals, the most recent first
+    actions: list[Entry] = field(default_factory=list)  # ended actions, the most recent first
+    pending: dict[str, Entry] = field(default_factory=dict)  # started and not yet answered
 
     def forget(self, now: int) -> None:
         self.handled = {k: at for k, at in self.handled.items() if now - at < HANDLED_SECONDS}
@@ -62,34 +71,58 @@ class State:
         self.launches = [item for item in self.launches if now - item.at < LAUNCH_SECONDS]
 
     def remember(self, entry: Entry) -> None:
-        kept: list[Entry] = []
-        invalid = 0
-        for item in (entry, *self.recent):
-            if item["prescription"] is None:
-                invalid += 1
-                if invalid > LOG_INVALID_ENTRIES:
-                    continue
-            kept.append(item)
-        self.recent = kept[:LOG_ENTRIES]
+        """Keeps a refused request."""
+        self.recent = [entry, *self.recent][:LOG_REFUSALS]
+
+    def log(self) -> list[Entry]:
+        """The public log, the most recent first."""
+        entries = [*self.actions, *self.recent]
+        return sorted(entries, key=lambda e: str(e["result"].get("finished_at")), reverse=True)
 
     def copy(self) -> "State":
-        return State(dict(self.handled), list(self.launches), list(self.recent))
+        return State(
+            dict(self.handled),
+            list(self.launches),
+            list(self.recent),
+            list(self.actions),
+            dict(self.pending),
+        )
 
 
 def _is_time(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def _are_entries(value: object) -> bool:
+    return isinstance(value, list) and all(
+        isinstance(item, dict)
+        and set(item) == {"prescription", "result"}
+        and isinstance(item["result"], dict)
+        for item in value
+    )
+
+
+def _is_pending(rx_id: str, item: object) -> bool:
+    return (
+        RX_ID.fullmatch(rx_id) is not None
+        and isinstance(item, dict)
+        and set(item) == {"prescription", "started_at"}
+        and isinstance(item["prescription"], dict)
+        and isinstance(item["started_at"], str)
+    )
+
+
 def _parse_state(document: object) -> State:
     """Anything that is not exactly what NURSE writes raises `StateError`."""
-    if not isinstance(document, dict) or set(document) != {"handled", "launches", "recent"}:
+    names = ("handled", "launches", "recent", "actions", "pending")
+    if not isinstance(document, dict) or set(document) != set(names):
         raise StateError
-    handled, launches, recent = (document[key] for key in ("handled", "launches", "recent"))
+    handled, launches, recent, actions, pending = (document[key] for key in names)
     if not isinstance(handled, dict) or not all(_is_time(at) for at in handled.values()):
         raise StateError
-    if not isinstance(recent, list) or not all(
-        isinstance(item, dict) and set(item) == {"prescription", "result"} for item in recent
-    ):
+    if not _are_entries(recent) or not _are_entries(actions):
+        raise StateError
+    if not isinstance(pending, dict) or not all(_is_pending(k, v) for k, v in pending.items()):
         raise StateError
     if not isinstance(launches, list):
         raise StateError
@@ -105,7 +138,7 @@ def _parse_state(document: object) -> State:
         ):
             raise StateError
         parsed.append(Launch(**item))
-    return State(dict(handled), parsed, list(recent))
+    return State(dict(handled), parsed, list(recent), list(actions), dict(pending))
 
 
 def load_state(log_dir: Path) -> State:
@@ -178,23 +211,25 @@ def save_state(log_dir: Path, state: State) -> None:
         "handled": state.handled,
         "launches": [asdict(item) for item in state.launches],
         "recent": state.recent,
+        "actions": state.actions,
+        "pending": state.pending,
     }
     _write_atomically(log_dir / STATE_NAME, document, 0o600)
 
 
-def append_journal(log_dir: Path, entry: Entry) -> None:
-    """The private journal: one line per handled request, in a few files of limited size."""
+def append_journal(log_dir: Path, entry: Entry, name: str = JOURNAL_NAME) -> None:
+    """A private journal: one line per entry, in a few files of limited size."""
     line = json.dumps(entry, ensure_ascii=True, allow_nan=False) + "\n"
-    journal = log_dir / JOURNAL_NAME
+    journal = log_dir / name
     try:
         size = journal.stat().st_size
     except FileNotFoundError:
         size = 0
     if size and size + len(line) > JOURNAL_BYTES:
         for number in range(JOURNAL_FILES - 1, 0, -1):
-            older = log_dir / (f"{JOURNAL_NAME}.{number - 1}" if number > 1 else JOURNAL_NAME)
+            older = log_dir / (f"{name}.{number - 1}" if number > 1 else name)
             if older.exists():
-                older.replace(log_dir / f"{JOURNAL_NAME}.{number}")
+                older.replace(log_dir / f"{name}.{number}")
     descriptor = os.open(journal, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
     with os.fdopen(descriptor, "a", encoding="utf-8") as stream:
         stream.write(line)
@@ -214,8 +249,11 @@ def write_log(results_dir: Path, entries: Iterable[Entry]) -> None:
     _write_atomically(results_dir / LOG_NAME, list(entries), 0o640)
 
 
-def prune_results(results_dir: Path, now: float) -> None:
-    """Removes old results, and the oldest ones above the limit."""
+def prune_results(results_dir: Path, now: float, actions: frozenset[str] = frozenset()) -> None:
+    """Removes old results, and the oldest ones above the limit.
+
+    The results of the started `actions` do not count in the limit: refusals cannot push them out.
+    """
     found = []
     for path in results_dir.iterdir():
         if path.name == LOG_NAME or path.suffix != ".json" or path.name.startswith("."):
@@ -225,6 +263,70 @@ def prune_results(results_dir: Path, now: float) -> None:
         except FileNotFoundError:
             continue
     found.sort(reverse=True)
-    for index, (written, _, path) in enumerate(found):
-        if index >= MAX_RESULTS or now - written > RESULT_SECONDS:
+    others = 0
+    for written, _, path in found:
+        started = path.stem in actions
+        others += not started
+        if now - written > RESULT_SECONDS or (not started and others > MAX_RESULTS):
             path.unlink(missing_ok=True)
+
+
+def start_action(
+    log_dir: Path, state: State, prescription: Entry, launch: Launch, started_at: str
+) -> None:
+    """Must succeed before anything is run: from then on, the request is never run again."""
+    rx_id = prescription["rx_id"]
+    saved = state.copy()
+    saved.handled[rx_id] = launch.at
+    saved.launches.append(launch)
+    saved.pending[rx_id] = {"prescription": prescription, "started_at": started_at}
+    save_state(log_dir, saved)
+    state.handled, state.launches, state.pending = saved.handled, saved.launches, saved.pending
+
+
+def finish_action(log_dir: Path, results_dir: Path, state: State, result: Entry) -> None:
+    """Answers a started action. It stays pending until everything is written."""
+    rx_id = result["rx_id"]
+    entry = {"prescription": state.pending[rx_id]["prescription"], "result": result}
+    append_journal(log_dir, entry, ACTIONS_NAME)
+    write_result(results_dir, result)
+    saved = state.copy()
+    del saved.pending[rx_id]
+    saved.actions = [entry, *saved.actions][:LOG_ACTIONS]
+    save_state(log_dir, saved)
+    state.pending, state.actions = saved.pending, saved.actions
+    write_log(results_dir, state.log())
+
+
+def _written_answer(results_dir: Path, rx_id: str) -> Entry | None:
+    """The answer to a started action, if it was written before the interruption."""
+    try:
+        with result_path(results_dir, rx_id).open("rb") as stream:
+            result = json.loads(stream.read(_MAX_STATE_BYTES))
+    except (FileNotFoundError, ValueError, RecursionError):
+        return None
+    if isinstance(result, dict) and result.get("rx_id") == rx_id:
+        return result if result.get("status") not in ("queued", "refused") else None
+    return None
+
+
+def recover_actions(log_dir: Path, results_dir: Path, state: State, now: str) -> list[str]:
+    """Ends what an interruption left unanswered, without ever running it again.
+
+    Whether such an action had an effect is unknown: it is answered `unverified`.
+    """
+    recovered = list(state.pending)
+    for rx_id in recovered:
+        result = _written_answer(results_dir, rx_id) or {
+            "rx_id": rx_id,
+            "status": "unverified",
+            "refusal_reason": None,
+            "exit_code": None,
+            "output_excerpt": None,
+            "anomaly": "action_unverified",
+            "started_at": state.pending[rx_id]["started_at"],
+            "finished_at": now,
+            "verified": False,
+        }
+        finish_action(log_dir, results_dir, state, result)
+    return recovered
