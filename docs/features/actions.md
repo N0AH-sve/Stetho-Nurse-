@@ -169,9 +169,10 @@ unfinished after a crash blocks a rerun until Hermes clears it.
 
 | Where | What |
 | --- | --- |
-| `log_dir/state.json` | Handled identifiers, started and pending actions, and the last entries. Saved before anything is answered. A missing file is a first start; an unusable one refuses everything and is never overwritten |
+| `log_dir/state.json` | Handled identifiers, started and pending actions, and the last entries. Saved before anything is answered. Created empty at the first start. Unusable, or missing after it, it refuses everything and is never overwritten |
 | `log_dir/journal.jsonl` | One line per refused request: 5 files of 1 MiB at most |
-| `log_dir/started.json` | The identifiers of the actions, kept 8 days after they end, and longer while the state lists them. Written before the state. Created at startup if missing, unless the state lists actions. Unusable, or missing in that case or while NURSE runs, it refuses everything |
+| `log_dir/started.json` | The identifiers of the actions, kept 8 days after they end, and longer while the state lists them. Written before the state at each action. Created at the first start. Unusable, or missing after it, it refuses everything |
+| `log_dir/initialized` | The marker of a completed first start, written after the two files above. Written again at startup if only it is lost |
 | `log_dir/actions.jsonl` | One line per ended action, with the same limit. A refusal never writes here |
 | `results_dir/<rx_id>.json` | The result, readable by the group. The first answer to an identifier is never replaced. Removed after 7 days. Above 1000, the oldest refusals are removed; the results of the actions in the log do not count |
 | `results_dir/_log.json` | The last 80 actions and the last 20 refused requests, the most recent first. No identifier can take this name |
@@ -202,17 +203,20 @@ leaves the requests waiting.
   the limit of 1000. A result itself goes after 7 days.
 - **NURSE does not start with an unusable state:** it could not tell what was interrupted. It
   says so in its logs, and no request is answered until the state is repaired. A state that
-  becomes unusable while NURSE runs refuses everything. So does the loss of `started.json`
-  while NURSE runs, even when `state.json` is lost with it: this is not a first start.
+  becomes unusable while NURSE runs refuses everything.
+- **A lost state file is not a first start.** NURSE writes `state.json`, `started.json` and then
+  the marker. While it runs, or once the marker is there, a missing state file is a loss, even
+  when both are missing: it is never written again. Without the marker, `started.json` without
+  `state.json`, or a missing `started.json` while the state lists actions, is a loss too;
+  anything else is an interrupted first start, which is resumed.
+- **To start again after a loss,** restore the missing file. Removing the three files is a new
+  first start: the limits and the protection of the past actions are lost. **Limit:** NURSE
+  cannot tell the loss of the three files from a first start.
 - **Such a refusal never answers for an action.** The identifiers of the actions are then read
   apart, from `started.json`: their requests are journaled and deleted without any result file.
   If that file cannot be read either, or is missing, no result file is written at all: NURSE
-  creates it when it starts. The same protection applies when too many identifiers are
+  creates it at its first start. The same protection applies when too many identifiers are
   remembered. **Limit:** such requests get no answer on the page.
-- **Not settled:** with `started.json` present and `state.json` lost, at startup or while NURSE
-  runs, it is taken for a first start: the pending actions are not answered and the limits start
-  again. So is, at startup, the loss of both files, including a restart after such a loss while
-  NURSE was running.
 - A request whose action could not be recorded as started is later a `duplicate`, without result
   file. Nothing was run.
 - A request that was only being refused when NURSE stopped is answered `duplicate`: nothing was

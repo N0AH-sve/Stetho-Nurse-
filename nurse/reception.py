@@ -20,7 +20,7 @@ from nurse.records import (
     State,
     StateError,
     append_journal,
-    create_started,
+    create_state_files,
     load_started,
     load_state,
     prune_results,
@@ -172,7 +172,7 @@ class Reception:
         Raises `StateError` for an unusable state: what was interrupted is then unknown.
         """
         state = load_state(self._settings.log_dir)
-        create_started(self._settings.log_dir, state)
+        create_state_files(self._settings.log_dir, state)
         directories = self._settings.log_dir, self._settings.results_dir
         now = self._clock()
         for rx_id in recover_actions(*directories, state, _timestamp(now), int(now.timestamp())):
