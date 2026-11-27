@@ -36,7 +36,8 @@ traceback. Errors that nothing catches, in a thread for example, are written the
 web server is given all its settings, so that it reads no environment variable.
 
 - **Required.** Every setting of the example must be present. Only `language` (`en`) and the
-  [gateway thresholds](gateway.md#thresholds) may be left out. No other value is assumed.
+  [gateway thresholds](gateway.md#thresholds) and the [platforms threshold](platforms.md#rules)
+  may be left out. No other value is assumed.
 - **Empty secrets.** `auth.password` and `alerts.discord.webhook_url` must be present but may be
   empty. An empty password means that the reverse proxy handles authentication.
 - **Password.** Empty, or at least 16 characters; characters are counted, not bytes.
@@ -123,7 +124,7 @@ as `5 min`, in `stetho/durations.py`. Dates are written as `2026-01-15 12:30`.
 - **Strict validation.** STETHO refuses to start on a missing, unknown or invalid setting, so
   that a typing mistake cannot go unnoticed.
 - **Overrides** come with each module. Until a module supports them, `overrides` is refused.
-  So far, only [`gateway`](gateway.md#thresholds) does.
+  So far, [`gateway`](gateway.md#thresholds) and [`platforms`](platforms.md#rules) do.
 - **Rate limits** are configurable for each action.
 - **Language** of the page and the alerts is chosen at installation: French, English or
   Spanish. English is the default. No

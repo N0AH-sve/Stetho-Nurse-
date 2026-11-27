@@ -175,6 +175,20 @@ def test_probe_duration_outside_a_day_is_refused(name: str, value: int) -> None:
     )
 
 
+def test_platform_threshold_may_be_changed() -> None:
+    document = changed("modules.platforms.overrides", {"critical_after_minutes": 10})
+
+    assert parse_config(document).modules.platforms.overrides == {"critical_after_minutes": 10}
+    assert parse_config(example()).modules.platforms.overrides == {}
+
+
+@pytest.mark.parametrize("value", [{"critical_after_minutes": 0}, {"other": 1}, []])
+def test_invalid_platform_override_is_refused(value: object) -> None:
+    message = error_of(changed("modules.platforms.overrides", value))
+
+    assert "modules.platforms.overrides" in message
+
+
 def test_gateway_thresholds_may_be_changed() -> None:
     document = changed("modules.gateway.overrides", {"down_after_minutes": 10})
 
@@ -280,6 +294,7 @@ def test_missing_setting_is_refused(path: str) -> None:
         "modules.unknown_module",
         "modules.gateway.enable",
         "modules.cron_jobs.overrides",
+        "modules.kanban.overrides",
         "alerts.telegram",
         "alerts.discord.webhook",
     ],

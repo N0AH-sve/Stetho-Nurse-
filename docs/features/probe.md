@@ -95,8 +95,8 @@ logged and does not end the monitoring.
 
 ## Module layout
 
-Each module is a folder of `stetho/modules/`. [`gateway`](gateway.md) has a reader with its
-adapters, rules and a sensor. A sensor has an `id`, a `title`, a `group` and
+Each module is a folder of `stetho/modules/`. [`gateway`](gateway.md) and
+[`platforms`](platforms.md) each have a reader with its adapters, rules and a sensor. A sensor has an `id`, a `title`, a `group` and
 `read(now, sleep)`, which returns its result and anomalies. `build_sensors` lists the sensors of
 the enabled modules.
 

@@ -498,7 +498,7 @@ def test_probe_runs_while_the_server_does() -> None:
 
     assert "probe" not in {thread.name for thread in threading.enumerate()}
     assert store.latest is not None
-    assert [result.id for result in store.latest.sensors] == ["gateway"]
+    assert [result.id for result in store.latest.sensors] == ["gateway", "platforms"]
     assert not store.failed
 
 

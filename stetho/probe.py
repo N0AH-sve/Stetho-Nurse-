@@ -18,6 +18,7 @@ from stetho.config import Config
 from stetho.errors import summarise_error
 from stetho.i18n import Translator
 from stetho.modules.gateway.sensor import GatewaySensor
+from stetho.modules.platforms.sensor import PlatformsSensor
 from stetho.results import Detail, SensorOutcome, SensorResult, Status, overall_status
 from stetho.sources import Sleep
 
@@ -240,7 +241,10 @@ def _place(anomaly: Anomaly) -> str:
 
 
 def build_sensors(config: Config, translator: Translator) -> tuple[Sensor, ...]:
-    """The sensors of the enabled modules. Only `gateway` exists so far."""
-    if not config.modules.gateway.enabled:
-        return ()
-    return (GatewaySensor(config, translator),)
+    """The sensors of the enabled modules."""
+    sensors: list[Sensor] = []
+    if config.modules.gateway.enabled:
+        sensors.append(GatewaySensor(config, translator))
+    if config.modules.platforms.enabled:
+        sensors.append(PlatformsSensor(config, translator))
+    return tuple(sensors)

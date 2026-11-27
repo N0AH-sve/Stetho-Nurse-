@@ -198,8 +198,11 @@ def test_healthy_report() -> None:
     status, _ = check_every_read(api)
 
     assert (status["status"], status["summary"]) == ("ok", "Everything is working")
-    (gateway,) = status["sensors"]
-    assert (gateway["advice"], gateway["stale"]) == (None, False)
+    assert [sensor["id"] for sensor in status["sensors"]] == ["gateway", "platforms"]
+    assert [(sensor["advice"], sensor["stale"]) for sensor in status["sensors"]] == [
+        (None, False),
+        (None, False),
+    ]
 
 
 def test_banner_names_the_most_severe_problem_with_its_advice() -> None:

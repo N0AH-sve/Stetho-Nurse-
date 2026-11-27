@@ -4,7 +4,7 @@ Free text from Hermes never leaves this module: only known, filtered or typed va
 """
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -313,23 +313,46 @@ def _read_unclean_stop(
     return UncleanStop(date, event.get("suspected_oom") is True), anomalies
 
 
+@dataclass(frozen=True)
+class StateFile:
+    """The state file of one profile, as read. `document` stays inside the readers."""
+
+    profile: str
+    source: str  # relative to the Hermes data directory
+    document: Mapping[str, object] | None  # None: it cannot be used, `anomalies` says why
+    state: GatewayState | None
+    anomalies: tuple[Anomaly, ...]  # those of the gateway module
+
+
+def _home_prefix(profile: str) -> str:
+    return "" if profile == ROOT_PROFILE else f"{_PROFILES_DIR}/{profile}/"
+
+
+def read_state_file(
+    data_dir: Path, profile: str, *, adapter: Adapter, now: datetime, sleep: Sleep
+) -> StateFile:
+    prefix = _home_prefix(profile)
+    source = prefix + STATE_FILE
+    result = read_source(
+        data_dir / prefix / STATE_FILE, _parse_object, max_bytes=_MAX_STATE_BYTES, sleep=sleep
+    )
+    if isinstance(result, SourceFailure):
+        return StateFile(profile, source, None, None, (_failure(result, source),))
+    parser = _StateParser(result, source, adapter, now)
+    state = parser.parse()
+    return StateFile(profile, source, result, state, tuple(parser.anomalies))
+
+
 def read_gateway(
     data_dir: Path, profile: str, *, adapter: Adapter, now: datetime, sleep: Sleep
 ) -> GatewayReading:
     """Read the files of one profile. `now` must have a time zone."""
-    prefix = "" if profile == ROOT_PROFILE else f"{_PROFILES_DIR}/{profile}/"
-    home = data_dir / prefix
-    source = prefix + STATE_FILE
-    result = read_source(home / STATE_FILE, _parse_object, max_bytes=_MAX_STATE_BYTES, sleep=sleep)
-    state: GatewayState | None = None
-    if isinstance(result, SourceFailure):
-        anomalies = [_failure(result, source)]
-    else:
-        parser = _StateParser(result, source, adapter, now)
-        state = parser.parse()
-        anomalies = parser.anomalies
-    unclean_stop, log_anomalies = _read_unclean_stop(home, prefix + EXIT_LOG, now, sleep)
-    return GatewayReading(profile, state, unclean_stop, (*anomalies, *log_anomalies))
+    read = read_state_file(data_dir, profile, adapter=adapter, now=now, sleep=sleep)
+    prefix = _home_prefix(profile)
+    unclean_stop, log_anomalies = _read_unclean_stop(
+        data_dir / prefix, prefix + EXIT_LOG, now, sleep
+    )
+    return GatewayReading(profile, read.state, unclean_stop, (*read.anomalies, *log_anomalies))
 
 
 def _has_state_file(home: Path) -> bool:
@@ -342,7 +365,7 @@ def _has_state_file(home: Path) -> bool:
     return True
 
 
-def _discover_profiles(data_dir: Path) -> tuple[list[str], list[Anomaly]]:
+def _discover_profiles(data_dir: Path, module: str) -> tuple[list[str], list[Anomaly]]:
     """Named profiles that have a gateway state file."""
     try:
         folders = sorted(path for path in (data_dir / _PROFILES_DIR).iterdir() if path.is_dir())
@@ -355,7 +378,9 @@ def _discover_profiles(data_dir: Path) -> tuple[list[str], list[Anomaly]]:
             else UnreadableReason.OTHER
         )
         failure = SourceFailure(AnomalyCode.SOURCE_UNREADABLE, reason)
-        return [], [_failure(failure, _PROFILES_DIR)]
+        return [], [
+            Anomaly(code=failure.code, module=module, source=_PROFILES_DIR, reason=failure.reason)
+        ]
     names: list[str] = []
     anomalies: list[Anomaly] = []
     for folder in folders:
@@ -367,12 +392,55 @@ def _discover_profiles(data_dir: Path) -> tuple[list[str], list[Anomaly]]:
             anomalies.append(
                 Anomaly(
                     code=AnomalyCode.SCHEMA_CHANGED,
-                    module=MODULE,
+                    module=module,
                     source=_PROFILES_DIR,
                     field="profile name",
                 )
             )
     return names, anomalies
+
+
+class ProfileReader[R]:
+    """Reads one thing for every expected profile, and remembers the profiles seen.
+
+    With `profiles: auto`, the main profile is always expected, and another one if it has a
+    state file. A listed profile is always expected, unless the main gateway serves it and it
+    has no state file of its own. With `auto`, a profile seen once stays expected until STETHO
+    restarts, unless the main gateway now serves it: its file must not disappear unnoticed.
+    """
+
+    def __init__(
+        self,
+        hermes: HermesSettings,
+        module: str,
+        served_by: Callable[[R], tuple[str, ...]],
+    ) -> None:
+        self._hermes = hermes
+        self._module = module
+        self._served_by = served_by  # the profiles that a reading says it serves
+        self._seen: set[str] = set()
+
+    def read(self, read: Callable[[str], R]) -> tuple[list[tuple[str, R]], tuple[Anomaly, ...]]:
+        """The readings by profile, and the anomalies that belong to no single profile."""
+        data_dir = self._hermes.data_dir
+        root = read(ROOT_PROFILE)
+        served = self._served_by(root)
+        anomalies: list[Anomaly] = []
+        if self._hermes.profiles == "auto":
+            discovered, anomalies = _discover_profiles(data_dir, self._module)
+            gone = self._seen - set(discovered) - set(served) - {ROOT_PROFILE}
+            expected = [ROOT_PROFILE, *discovered, *sorted(gone)]
+            self._seen = set(expected)
+        else:
+            expected = [
+                name
+                for name in self._hermes.profiles
+                if name == ROOT_PROFILE
+                or name not in served
+                or _has_state_file(data_dir / _PROFILES_DIR / name)
+            ]
+        readings = [(name, root if name == ROOT_PROFILE else read(name)) for name in expected]
+        return readings, tuple(anomalies)
 
 
 @dataclass(frozen=True)
@@ -381,32 +449,21 @@ class GatewaysReading:
     anomalies: tuple[Anomaly, ...]  # those that belong to no single profile
 
 
+def served_by_gateway(reading: GatewayReading) -> tuple[str, ...]:
+    return reading.state.served_profiles if reading.state else ()
+
+
 def read_gateways(
-    hermes: HermesSettings, *, adapter: Adapter, now: datetime, sleep: Sleep
+    hermes: HermesSettings,
+    *,
+    adapter: Adapter,
+    now: datetime,
+    sleep: Sleep,
+    profiles: ProfileReader[GatewayReading] | None = None,
 ) -> GatewaysReading:
-    """Read every gateway that is expected.
-
-    With `profiles: auto`, the main profile is always expected, and another one if it has a
-    state file. A listed profile is always expected, unless the main gateway serves it and it
-    has no state file of its own.
-    """
-
-    def read(profile: str) -> GatewayReading:
-        return read_gateway(hermes.data_dir, profile, adapter=adapter, now=now, sleep=sleep)
-
-    root = read(ROOT_PROFILE)
-    served = root.state.served_profiles if root.state else ()
-    anomalies: list[Anomaly] = []
-    if hermes.profiles == "auto":
-        discovered, anomalies = _discover_profiles(hermes.data_dir)
-        expected = [ROOT_PROFILE, *discovered]
-    else:
-        expected = [
-            name
-            for name in hermes.profiles
-            if name == ROOT_PROFILE
-            or name not in served
-            or _has_state_file(hermes.data_dir / _PROFILES_DIR / name)
-        ]
-    gateways = tuple(root if name == ROOT_PROFILE else read(name) for name in expected)
-    return GatewaysReading(gateways, tuple(anomalies))
+    """Read every gateway that is expected. Give the same `profiles` to remember them."""
+    reader = profiles or ProfileReader(hermes, MODULE, served_by_gateway)
+    readings, anomalies = reader.read(
+        lambda name: read_gateway(hermes.data_dir, name, adapter=adapter, now=now, sleep=sleep)
+    )
+    return GatewaysReading(tuple(reading for _, reading in readings), anomalies)
