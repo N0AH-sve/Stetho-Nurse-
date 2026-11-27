@@ -20,6 +20,8 @@ from stetho.probe import Probe, ProbeReport
 from stetho.web.guard import HEALTH_PATH, Guard, error_response
 
 _LOG = logging.getLogger(__name__)
+# A stuck sensor must not hold the stop of STETHO, whatever its time limit.
+_MAX_STOP_WAIT_SECONDS: float = 5
 
 
 class ReportStore:
@@ -59,7 +61,8 @@ def create_app(config: Config, translator: Translator, probe: Probe, store: Repo
             yield
         finally:
             stop.set()
-            await run_in_threadpool(thread.join, config.probe.sensor_timeout_seconds + 1)
+            wait = min(config.probe.sensor_timeout_seconds + 1, _MAX_STOP_WAIT_SECONDS)
+            await run_in_threadpool(thread.join, wait)
 
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncIterator[None]:

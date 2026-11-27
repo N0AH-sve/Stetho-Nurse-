@@ -6,7 +6,7 @@ import logging
 import signal
 import socket
 import threading
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from types import FrameType
@@ -60,18 +60,18 @@ def listening_socket(host: str, port: int) -> socket.socket:
 
 
 @contextlib.contextmanager
-def _stop_signals(server: uvicorn.Server) -> Iterator[None]:
+def _stop_signals(stopping: Callable[[], bool]) -> Iterator[None]:
     """Make SIGINT and SIGTERM end STETHO without a traceback.
 
-    The web server handles them while it serves, then sends them again: by then it is already
-    stopping, and nothing more is done. Before that, they interrupt the startup.
+    They interrupt the startup. The web server handles them while it serves, then sends them
+    again: by then it is already stopping, and nothing more is done.
     """
     if threading.current_thread() is not threading.main_thread():
         yield
         return
 
     def handle(_signal: int, _frame: FrameType | None) -> None:
-        if not server.should_exit:
+        if not stopping():
             raise KeyboardInterrupt
 
     previous = {name: signal.signal(name, handle) for name in (signal.SIGINT, signal.SIGTERM)}
@@ -90,11 +90,7 @@ def _log_error(sentence: str, error: BaseException) -> None:
 
 def _serve(server: uvicorn.Server, listener: socket.socket, store: ReportStore) -> int:
     try:
-        with _stop_signals(server):
-            server.run(sockets=[listener])
-    except KeyboardInterrupt:
-        _LOG.info("STETHO stopped on request")
-        return 0
+        server.run(sockets=[listener])
     except SystemExit:
         # How the web server gives up, for example when the startup fails.
         _LOG.error("STETHO stopped: the web server could not run")
@@ -108,15 +104,10 @@ def _serve(server: uvicorn.Server, listener: socket.socket, store: ReportStore) 
     return 0
 
 
-def main(arguments: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m stetho", description="Watches Hermes.")
-    parser.add_argument("--config", required=True, type=Path, help="the settings file")
-    options = parser.parse_args(arguments)
-    setup_logging()
-    install_error_hooks()
+def _start(path: Path, servers: list[uvicorn.Server]) -> int:
     store = ReportStore()
     try:
-        config = load_config(options.config)
+        config = load_config(path)
         server = build_server(config, store)
     except (ConfigError, TranslationError, RulesError) as error:
         _LOG.error("STETHO cannot start: %s", error)
@@ -138,10 +129,26 @@ def main(arguments: Sequence[str] | None = None) -> int:
             "(is the port already used?)"
         )
         return _CANNOT_START
+    servers.append(server)
     try:
         return _serve(server, listener, store)
     finally:
         listener.close()
+
+
+def main(arguments: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="python -m stetho", description="Watches Hermes.")
+    parser.add_argument("--config", required=True, type=Path, help="the settings file")
+    options = parser.parse_args(arguments)
+    setup_logging()
+    install_error_hooks()
+    servers: list[uvicorn.Server] = []  # filled once there is a server that can be stopping
+    try:
+        with _stop_signals(lambda: any(server.should_exit for server in servers)):
+            return _start(options.config, servers)
+    except KeyboardInterrupt:
+        _LOG.info("STETHO stopped on request")
+        return 0
 
 
 if __name__ == "__main__":

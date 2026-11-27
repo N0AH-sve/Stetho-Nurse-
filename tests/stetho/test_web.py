@@ -461,6 +461,26 @@ def test_rhythm_of_the_settings_is_written_at_startup(log: io.StringIO) -> None:
 
 
 @pytest.mark.usefixtures("log")
+def test_stuck_probe_does_not_hold_the_stop(monkeypatch: pytest.MonkeyPatch) -> None:
+    release = threading.Event()
+    monkeypatch.setattr("stetho.web.app._MAX_STOP_WAIT_SECONDS", 0.2)
+    # A probe that never looks at the request to stop, as while it waits for a stuck sensor.
+    monkeypatch.setattr("stetho.probe.Probe.run_forever", lambda *_arguments: release.wait(60))
+    document = settings()
+    document["probe"]["sensor_timeout_seconds"] = 86400
+
+    try:
+        with running(parse_config(document)):  # fails if the stop takes more than 10 s
+            pass
+    finally:
+        release.set()
+
+
+def test_stop_waits_at_most_five_seconds_for_the_probe() -> None:
+    assert web_app._MAX_STOP_WAIT_SECONDS == 5
+
+
+@pytest.mark.usefixtures("log")
 def test_probe_runs_while_the_server_does() -> None:
     published = threading.Event()
 

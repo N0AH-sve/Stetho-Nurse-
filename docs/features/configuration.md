@@ -23,9 +23,13 @@ other error found before serving.
 
 | End | Exit code |
 | --- | --- |
-| `SIGINT` or `SIGTERM`, then a normal stop | 0 |
+| `SIGINT` or `SIGTERM`, at the startup or while serving, then a normal stop | 0 |
 | The web server cannot run, or the startup or shutdown of STETHO fails | 1 |
 | STETHO does not start (see above) | 2 |
+
+A stop waits at most 5 seconds for a reading in progress, whatever the sensor time limit: a
+stuck sensor does not hold it. **Limit:** a signal received while Python is still loading the
+program, before STETHO runs, is not handled this way.
 
 In the failures, the log gives the error type and the calls in STETHO, never a message or a
 traceback. Errors that nothing catches, in a thread for example, are written the same way. The

@@ -40,6 +40,8 @@ def write_config(tmp_path: Path, **server: Any) -> Path:
     document = yaml.safe_load((ROOT / "config" / "stetho.example.yaml").read_text("utf-8"))
     document["server"] |= {"host": "127.0.0.1", "port": 0} | server
     document["auth"]["password"] = MADE_UP_PHRASE
+    # Never the data directory of the machine that runs the tests.
+    document["hermes"]["data_dir"] = str(ROOT / "tests" / "fixtures" / "hermes-0.21" / "healthy")
     path = tmp_path / "stetho.yaml"
     path.write_text(yaml.safe_dump(document), encoding="utf-8")
     return path
@@ -108,7 +110,7 @@ def test_missing_password_is_warned_about(
     path = write_config(tmp_path, port=1)
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
     document["auth"]["password"] = password
-    document["server"]["port"] = 65000
+    document["server"]["port"] = free_port()
     path.write_text(yaml.safe_dump(document), encoding="utf-8")
 
     def refuse(_host: str, _port: int) -> None:
@@ -131,7 +133,7 @@ def test_crash_of_the_server_shows_no_message(
 
     monkeypatch.setattr(uvicorn.Server, "run", crash)
 
-    assert program.main(["--config", str(write_config(tmp_path, port=65000))]) == 1
+    assert program.main(["--config", str(write_config(tmp_path, port=free_port()))]) == 1
 
     printed = capsys.readouterr().err
     assert "STETHO stopped: RuntimeError" in printed
@@ -147,11 +149,11 @@ def test_exit_code_tells_whether_the_server_started(
 
     monkeypatch.setattr(uvicorn.Server, "run", run)
 
-    assert program.main(["--config", str(write_config(tmp_path, port=65000))]) == code
+    assert program.main(["--config", str(write_config(tmp_path, port=free_port()))]) == code
 
 
 def test_server_is_hardened(tmp_path: Path) -> None:
-    config = load_config(write_config(tmp_path, port=65000))
+    config = load_config(write_config(tmp_path, port=free_port()))
 
     options = program.build_server(config, web_app.ReportStore()).config
 
@@ -215,7 +217,7 @@ def test_environment_variables_change_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
 ) -> None:
     monkeypatch.setenv(name, MARKER)
-    config = load_config(write_config(tmp_path, port=65000))
+    config = load_config(write_config(tmp_path, port=free_port()))
 
     options = program.build_server(config, web_app.ReportStore()).config
 
@@ -230,7 +232,7 @@ def test_unexpected_error_at_startup_shows_no_message(
 
     monkeypatch.setattr(program, "build_server", crash)
 
-    assert program.main(["--config", str(write_config(tmp_path, port=65000))]) == 2
+    assert program.main(["--config", str(write_config(tmp_path, port=free_port()))]) == 2
 
     printed = capsys.readouterr().err
     assert "STETHO cannot start: RuntimeError" in printed
@@ -243,9 +245,10 @@ def test_unusable_host_name_stops_the_start(
     def refuse(_host: str, _port: int) -> None:
         raise UnicodeError(MARKER)
 
+    path = write_config(tmp_path, port=free_port())  # before anything is replaced
     monkeypatch.setattr(program, "listening_socket", refuse)
 
-    assert program.main(["--config", str(write_config(tmp_path, port=65000))]) == 2
+    assert program.main(["--config", str(path)]) == 2
     assert MARKER not in capsys.readouterr().err
 
 
@@ -314,22 +317,49 @@ def test_stop_signal_ends_cleanly(tmp_path: Path, sent: signal.Signals) -> None:
 
 
 @pytest.mark.parametrize("sent", [signal.SIGINT, signal.SIGTERM])
-def test_stop_signal_during_the_startup_interrupts_it(sent: signal.Signals) -> None:
-    class Starting:
-        should_exit = False
+@pytest.mark.parametrize("moment", ["build_server", "listening_socket", "run"])
+def test_stop_signal_before_the_server_serves_ends_cleanly(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    sent: signal.Signals,
+    moment: str,
+) -> None:
+    def interrupted(*_arguments: object, **_options: object) -> None:
+        signal.raise_signal(sent)
+        pytest.fail("the signal did not interrupt")
 
-        def run(self, **_options: object) -> None:
-            signal.raise_signal(sent)
-            pytest.fail("the signal did not interrupt")
-
+    path = write_config(tmp_path, port=free_port())  # before anything is replaced
+    target = "stetho.__main__.uvicorn.Server.run" if moment == "run" else None
+    monkeypatch.setattr(target or f"stetho.__main__.{moment}", interrupted)
     previous = signal.getsignal(sent)
 
-    server: Any = Starting()
-    with socket.socket() as unused:
-        code = program._serve(server, unused, web_app.ReportStore())
+    code = program.main(["--config", str(path)])
 
     assert code == 0
+    assert "STETHO stopped on request" in capsys.readouterr().err
     assert signal.getsignal(sent) is previous
+
+
+def test_program_installs_the_error_hooks(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail() -> None:
+        raise KeyError(MARKER)
+
+    def build_with_a_failing_thread(_config: object, _store: object) -> None:
+        thread = threading.Thread(target=fail)
+        thread.start()
+        thread.join(5)
+        raise RuntimeError(MARKER)
+
+    monkeypatch.setattr(program, "build_server", build_with_a_failing_thread)
+
+    program.main(["--config", str(write_config(tmp_path, port=free_port()))])
+
+    printed = capsys.readouterr()
+    assert "uncaught error: KeyError" in printed.err
+    assert MARKER not in printed.err + printed.out
 
 
 def test_server_giving_up_is_reported(capsys: pytest.CaptureFixture[str]) -> None:
