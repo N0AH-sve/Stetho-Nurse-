@@ -341,10 +341,6 @@ def with_state(**changes: object) -> bytes:
         with_state(recent=[{"prescription": None, "result": answer("refused", rx_id="../x")}]),
         with_state(pending={"a": {"prescription": 1, "started_at": "x"}}),
         with_state(pending={"a": {"prescription": {"rx_id": "b"}, "started_at": "x"}}),
-        with_state().replace(b'"recent": []', b'"recent": [1e999]'),
-        with_state(
-            pending={"a": {"prescription": {"rx_id": "a", "n": 12345.5}, "started_at": "x"}}
-        ).replace(b"12345.5", b"1e999"),
         with_state(
             pending={"a": {"prescription": {"rx_id": "a", "n": float("nan")}, "started_at": "x"}}
         ),
@@ -876,7 +872,10 @@ def test_a_pending_action_gets_no_other_answer(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("name", ["state.json", "started.json"])
-@pytest.mark.parametrize("content", [b"{", b"null", b"[]", b'{"../x": 1}', b'{"a": "x"}'])
+@pytest.mark.parametrize(
+    "content",
+    [b"{", b"null", b"[]", b'{"../x": 1}', b'{"a": "x"}', b'{"a": true}', b"\xef\xbb\xbfnull"],
+)
 def test_program_does_not_start_with_an_unusable_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -890,7 +889,10 @@ def test_program_does_not_start_with_an_unusable_state(
     monkeypatch.setattr(program, "load_catalogue", lambda _: ACTIONS)
     monkeypatch.setattr("signal.signal", lambda *_: None)
 
-    assert program.main(["--config", "unused"]) == 2
+    stop = threading.Event()
+    stop.set()
+
+    assert program.main(["--config", "unused"], stop) == 2
 
     assert "its state cannot be read" in caplog.text
     assert (configured.log_dir / name).read_bytes() == content
@@ -909,7 +911,7 @@ def started_and_done(tmp_path: Path, state: State, rx_id: str, at: int) -> None:
     launch = Launch(at, "RERUN_JOB", "manual", False)
     records.start_action(tmp_path / "log", state, request(rx_id), launch, STARTED)
     done = answer("done", rx_id=rx_id)
-    records.finish_action(tmp_path / "log", tmp_path / "results", state, done)
+    records.finish_action(tmp_path / "log", tmp_path / "results", state, done, at)
 
 
 def test_action_older_than_the_last_80_is_still_known(
@@ -1069,9 +1071,9 @@ def test_action_survives_a_failure_at_each_write(
         raise PermissionError
 
     monkeypatch.setattr(records, step, broken)
-    # Once the action is saved, only the public log is left: it is no longer pending.
-    for number in range(3):  # every restart fails the same way
-        if step == "write_log" and number:
+    for _ in range(3):  # every restart fails the same way
+        # Once the action is saved, only the public log is left: that does not stop NURSE.
+        if step == "write_log":
             reception(tmp_path).recover()
         else:
             with pytest.raises(PermissionError):
@@ -1132,7 +1134,7 @@ def test_another_entry_with_the_same_identifier_is_journaled(tmp_path: Path) -> 
     state = State()
     records.start_action(tmp_path / "log", state, request(), LAUNCH, STARTED)
 
-    records.finish_action(tmp_path / "log", tmp_path / "results", state, answer("done"))
+    records.finish_action(tmp_path / "log", tmp_path / "results", state, answer("done"), EPOCH)
 
     assert len((tmp_path / "log" / "actions.jsonl").read_text().splitlines()) == 2
 
@@ -1203,6 +1205,84 @@ def test_only_the_last_80_actions_stay_in_the_state(tmp_path: Path) -> None:
         rx_id = f"a{number}"
         records.start_action(tmp_path / "log", state, request(rx_id), LAUNCH, STARTED)
         done = answer("done", rx_id=rx_id)
-        records.finish_action(tmp_path / "log", tmp_path / "results", state, done)
+        records.finish_action(tmp_path / "log", tmp_path / "results", state, done, EPOCH)
 
     assert len(load_state(tmp_path / "log").actions) == 80
+
+
+@pytest.mark.parametrize(("number", "usable"), [("12345.5", True), ("1e999", False)])
+def test_number_too_large_to_be_written_back_makes_the_state_unusable(
+    tmp_path: Path, number: str, usable: bool
+) -> None:
+    pending = {"a": {"prescription": {"rx_id": "a", "n": 0}, "started_at": "x"}}
+    content = with_state(pending=pending).replace(b'"n": 0', b'"n": ' + number.encode())
+    (tmp_path / "state.json").write_bytes(content)
+    (tmp_path / "started.json").write_text(json.dumps({"a": EPOCH}))
+
+    if usable:
+        assert list(load_state(tmp_path).pending) == ["a"]
+    else:
+        with pytest.raises(StateError):
+            load_state(tmp_path)
+
+
+def test_ended_actions_alone_need_their_identifiers(tmp_path: Path) -> None:
+    reception(tmp_path)
+    state = State()
+    started_and_done(tmp_path, state, "a", EPOCH)
+    (tmp_path / "log" / "started.json").unlink()
+
+    with pytest.raises(StateError):
+        load_state(tmp_path / "log")
+
+
+@pytest.mark.parametrize("failing", ["started.json", "state.json"])
+def test_identifier_is_written_before_the_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str
+) -> None:
+    write = records._write_atomically
+
+    def fail_one(path: Path, value: object, mode: int) -> None:
+        if path.name == failing:
+            raise PermissionError
+        write(path, value, mode)
+
+    monkeypatch.setattr(records, "_write_atomically", fail_one)
+
+    with pytest.raises(PermissionError):
+        records.start_action(tmp_path, State(), request(), LAUNCH, STARTED)
+
+    state = load_state(tmp_path)
+    assert state.pending == {}
+    assert list(state.started) == (["rx-1"] if failing == "state.json" else [])
+
+
+def test_late_recovery_remembers_the_identifier_as_long_as_the_result(tmp_path: Path) -> None:
+    interrupted(tmp_path)
+    later = NOW + timedelta(days=3)
+
+    reception(tmp_path, clock=lambda: later).recover()
+
+    assert load_state(tmp_path / "log").started == {"rx-1": int(later.timestamp())}
+
+
+def test_oversized_number_in_a_result_is_not_kept_at_recovery(tmp_path: Path) -> None:
+    interrupted(tmp_path)
+    text = json.dumps(answer("done", exit_code=0)).replace('"exit_code": 0', '"exit_code": 1e999')
+    (tmp_path / "results" / "rx-1.json").write_text(text)
+
+    reception(tmp_path).recover()
+
+    assert result(tmp_path)["status"] == "unverified"
+
+
+def test_recovery_goes_on_when_only_the_public_log_fails(tmp_path: Path) -> None:
+    reception(tmp_path)
+    state = State()
+    for rx_id in ("a", "b"):
+        records.start_action(tmp_path / "log", state, request(rx_id), LAUNCH, STARTED)
+    (tmp_path / "results" / "_log.json").mkdir()
+
+    reception(tmp_path).recover()
+
+    assert load_state(tmp_path / "log").pending == {}

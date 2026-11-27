@@ -193,18 +193,21 @@ def _parse_state(document: object) -> State:
     return State(dict(handled), parsed, list(recent), list(actions), dict(pending))
 
 
+_MISSING = object()
+
+
 def _read_json(log_dir: Path, name: str) -> object:
-    """`None` when the file does not exist yet. Any other doubt raises `StateError`."""
+    """`_MISSING` when the file does not exist yet. Any other doubt raises `StateError`."""
     try:
         with (log_dir / name).open("rb") as stream:
             content = stream.read(_MAX_STATE_BYTES + 1)
     except FileNotFoundError:
         if log_dir.is_dir():
-            return None
+            return _MISSING
         raise StateError from None
     except OSError:
         raise StateError from None
-    if len(content) > _MAX_STATE_BYTES or content.strip() == b"null":
+    if len(content) > _MAX_STATE_BYTES:
         raise StateError
     try:
         return json.loads(content, parse_constant=_no_constant, parse_float=_finite)
@@ -215,9 +218,9 @@ def _read_json(log_dir: Path, name: str) -> object:
 def load_state(log_dir: Path) -> State:
     """Missing files are a first start. Any other doubt raises `StateError`."""
     document = _read_json(log_dir, STATE_NAME)
-    state = State() if document is None else _parse_state(document)
+    state = State() if document is _MISSING else _parse_state(document)
     started = _read_json(log_dir, STARTED_NAME)
-    if started is None:
+    if started is _MISSING:
         # Losing the identifiers of actions that the state still knows is not a first start.
         if state.pending or state.actions:
             raise StateError
@@ -353,7 +356,9 @@ def write_log(results_dir: Path, entries: Iterable[Entry]) -> None:
 def _read_result(path: Path) -> Entry | None:
     try:
         with path.open("rb") as stream:
-            result = json.loads(stream.read(_MAX_RESULT_BYTES), parse_constant=_no_constant)
+            result = json.loads(
+                stream.read(_MAX_RESULT_BYTES), parse_constant=_no_constant, parse_float=_finite
+            )
     except (FileNotFoundError, ValueError, RecursionError):
         return None
     return result if isinstance(result, dict) else None
@@ -413,7 +418,7 @@ def start_action(
     state.pending, state.started = saved.pending, saved.started
 
 
-def finish_action(log_dir: Path, results_dir: Path, state: State, result: Entry) -> None:
+def finish_action(log_dir: Path, results_dir: Path, state: State, result: Entry, now: int) -> None:
     """Answers a started action. It stays pending until everything is written.
 
     The answer comes first: after an interruption, it is the one that is kept.
@@ -429,8 +434,11 @@ def finish_action(log_dir: Path, results_dir: Path, state: State, result: Entry)
     saved = state.copy()
     del saved.pending[rx_id]
     saved.actions = [entry, *saved.actions][:LOG_ACTIONS]
+    # The result lives 7 days from now: its identifier must be remembered longer than that.
+    saved.started[rx_id] = now
+    _write_atomically(log_dir / STARTED_NAME, saved.started, 0o600)
     save_state(log_dir, saved)
-    state.pending, state.actions = saved.pending, saved.actions
+    state.pending, state.actions, state.started = saved.pending, saved.actions, saved.started
     write_log(results_dir, state.log())
 
 
@@ -449,7 +457,9 @@ def _written_answer(results_dir: Path, rx_id: str) -> Entry | None:
     return result
 
 
-def recover_actions(log_dir: Path, results_dir: Path, state: State, now: str) -> list[str]:
+def recover_actions(
+    log_dir: Path, results_dir: Path, state: State, now: str, seconds: int
+) -> list[str]:
     """Ends what an interruption left unanswered, without ever running it again.
 
     Whether such an action had an effect is unknown: it is answered `unverified`.
@@ -467,5 +477,9 @@ def recover_actions(log_dir: Path, results_dir: Path, state: State, now: str) ->
             "finished_at": now,
             "verified": False,
         }
-        finish_action(log_dir, results_dir, state, result)
+        try:
+            finish_action(log_dir, results_dir, state, result, seconds)
+        except OSError:
+            if rx_id in state.pending:
+                raise  # not answered: NURSE must not start
     return recovered

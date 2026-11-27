@@ -171,7 +171,7 @@ unfinished after a crash blocks a rerun until Hermes clears it.
 | --- | --- |
 | `log_dir/state.json` | Handled identifiers, started and pending actions, and the last entries. Saved before anything is answered. A missing file is a first start; an unusable one refuses everything and is never overwritten |
 | `log_dir/journal.jsonl` | One line per refused request: 5 files of 1 MiB at most |
-| `log_dir/started.json` | The identifiers of the actions started in the last 8 days. Written before the state; unusable, or missing while the state knows actions, it refuses everything |
+| `log_dir/started.json` | The identifiers of the actions, kept 8 days after they end. Written before the state; unusable, or missing while the state knows actions, it refuses everything |
 | `log_dir/actions.jsonl` | One line per ended action, with the same limit. A refusal never writes here |
 | `results_dir/<rx_id>.json` | The result, readable by the group. The first answer to an identifier is never replaced. Removed after 7 days. Above 1000, the oldest refusals are removed; the results of the actions in the log do not count |
 | `results_dir/_log.json` | The last 80 actions and the last 20 refused requests, the most recent first. No identifier can take this name |
@@ -196,13 +196,18 @@ leaves the requests waiting.
   NURSE starts, a pending action keeps the answer already written, or is answered `unverified`.
   It is never run again. If this cannot be written, NURSE does not start. The journal of the
   actions is synced to disk.
-- **The identifiers of the started actions are kept for 8 days** in a file apart. A request that
-  reuses one is a `duplicate` and never replaces its result, which does not count in the limit of
+- **The identifiers of the started actions are kept for 8 days after the action ends** in a file
+  apart. A request that reuses one is a `duplicate` and never replaces its result, which does not count in the limit of
   1000. A result itself goes after 7 days.
 - **NURSE does not start with an unusable state:** it could not tell what was interrupted. It
   says so in its logs, and no request is answered until the state is repaired. A state that
-  becomes unusable while NURSE runs refuses everything. **Limit:** such a refusal is also given to
-  a request that reuses the identifier of an action, whose result is kept.
+  becomes unusable while NURSE runs refuses everything.
+- **Not settled, before any action runs:** that refusal can be written as the result of an action
+  that has none yet, or no longer has one.
+- **Not settled:** with `started.json` present and `state.json` lost, NURSE takes it for a first
+  start: the pending actions are not answered and the limits start again.
+- A request whose action could not be recorded as started is later a `duplicate`, without result
+  file. Nothing was run.
 - A request that was only being refused when NURSE stopped is answered `duplicate`: nothing was
   run.
 - Once the interrupted actions are answered, a public log that cannot be written does not stop

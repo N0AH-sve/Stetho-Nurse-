@@ -171,7 +171,8 @@ class Reception:
         """
         state = load_state(self._settings.log_dir)
         directories = self._settings.log_dir, self._settings.results_dir
-        for rx_id in recover_actions(*directories, state, _timestamp(self._clock())):
+        now = self._clock()
+        for rx_id in recover_actions(*directories, state, _timestamp(now), int(now.timestamp())):
             _LOG.warning("action %s was interrupted: its effect is not verified", rx_id)
         # An interruption may have come just before the public log. Nothing rests on it: a
         # failure here does not stop NURSE, and the next request writes it again.
