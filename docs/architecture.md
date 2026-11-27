@@ -1,7 +1,7 @@
 # Architecture
 
 > Target architecture. Only these parts of STETHO are implemented: the core, the `gateway`
-> module without its card, and a protected web server with the reading routes of the API. NURSE does not
+> module, and a protected web server with the status page and the reading routes of the API. NURSE does not
 > exist yet.
 
 ## Goal

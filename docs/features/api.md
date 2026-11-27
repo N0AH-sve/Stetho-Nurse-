@@ -27,6 +27,10 @@ Schemas of the files exchanged with NURSE (`Prescription`, `PrescriptionResult`)
 A route marked `x-stetho-served: false` in the contract is described and not served. Routes for
 sessions and known weaknesses will be added with their modules.
 
+The [status page](status-page.md) and its two files, `/`, `/static/page.css` and
+`/static/page.js`, are not part of the API: the contract does not describe them. They have the same
+protections.
+
 - **One file.** There is no schema per module: the details of a sensor are always label and value
   pairs.
 - **Closed objects.** A response, and a file exchanged with NURSE, holds the described fields

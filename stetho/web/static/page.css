@@ -1,0 +1,60 @@
+:root {
+  --ground: #f6f7f9; --paper: #fff; --ink: #17202a; --soft: #4d5966; --line: #d5dae1;
+  --ok: #14633a; --warn: #8a4b00; --critical: #9b1c1c; --neutral: #4d5966;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 1rem; background: var(--ground); color: var(--ink);
+  font: 1rem/1.5 system-ui, sans-serif; }
+main, .notice { max-width: 70rem; margin: 0 auto 1rem; }
+h1 { font-size: 1.4rem; margin: 0 0 .5rem; }
+h2 { font-size: 1.1rem; margin: 0 0 .5rem; }
+h3 { font-size: 1rem; margin: 0 0 .25rem; }
+.banner { color: #fff; border-radius: .5rem; padding: 1.25rem; margin-bottom: 1.5rem; }
+.banner p { margin: 0; display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; }
+.banner.status-ok { background: var(--ok); }
+.banner.status-warn, .banner.status-unknown { background: var(--warn); }
+.banner.status-critical { background: var(--critical); }
+.banner.status-info { background: var(--neutral); }
+.badge { border: 1px solid #fff; border-radius: 1rem; padding: 0 .6rem; }
+.pill { display: inline-block; color: #fff; border-radius: 1rem; padding: 0 .6rem;
+  font-size: .8rem; font-weight: 600; vertical-align: middle; white-space: nowrap; }
+.pill.status-ok { background: var(--ok); }
+.pill.status-warn { background: var(--warn); }
+.pill.status-critical { background: var(--critical); }
+.pill.status-unknown, .pill.status-info { background: var(--neutral); }
+section { margin-bottom: 1.5rem; }
+.cards { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(min(20rem, 100%), 1fr)); }
+.card { background: var(--paper); border: 1px solid var(--line); border-radius: .5rem; padding: 1rem; }
+.group { color: var(--soft); font-size: .85rem; margin: 0; }
+.advice { border-left: .25rem solid var(--line); padding-left: .75rem; }
+.item { border-top: 1px solid var(--line); padding-top: .75rem; margin-top: .75rem; }
+dl { display: grid; grid-template-columns: auto 1fr; gap: .25rem 1rem; }
+dt { color: var(--soft); }
+dd { margin: 0; overflow-wrap: anywhere; }
+.table-scroll { overflow-x: auto; background: var(--paper); border: 1px solid var(--line);
+  border-radius: .5rem; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; vertical-align: top; padding: .5rem .75rem; border-top: 1px solid var(--line); }
+td { min-width: 6rem; overflow-wrap: anywhere; }
+th button { all: unset; cursor: pointer; font-weight: 600; text-decoration: underline dotted; }
+th[aria-sort="ascending"] button::after { content: " \25B2"; }
+th[aria-sort="descending"] button::after { content: " \25BC"; }
+summary { cursor: pointer; }
+.anomalies { font-weight: 600; margin-bottom: .5rem; }
+:focus-visible, th button:focus-visible { outline: 3px solid #1d4ed8; outline-offset: 2px; }
+.notice { background: var(--warn); color: #fff; border-radius: .5rem; padding: .75rem 1rem;
+  font-weight: 600; }
+/* Data that can no longer be refreshed must not look healthy. */
+body.outdated .banner { background: var(--warn); }
+body.outdated .pill { background: var(--neutral); }
+body.outdated main { opacity: .7; }
+/* On a phone, each problem is a block, and the sort buttons stay in one line above. */
+@media (max-width: 40rem) {
+  #problems, #problems thead, #problems tbody, #problems td, #problems tbody tr { display: block; }
+  #problems thead tr { display: flex; flex-wrap: wrap; }
+  #problems th { border: 0; }
+  #problems tbody tr { border-top: 1px solid var(--line); padding: .5rem 0; }
+  #problems td { border: 0; padding: .2rem .75rem; }
+  #problems td[data-label]::before { content: attr(data-label); display: block;
+    color: var(--soft); font-size: .8rem; }
+}

@@ -1,8 +1,8 @@
 # Gateway
 
 > Status: the reader, the rules, the texts and the sensor are implemented. The
-> [probe](probe.md#probe) runs the sensor and the [API](api.md#reading-routes) serves its result.
-> The card is to be written.
+> [probe](probe.md#probe) runs the sensor and the [API](api.md#reading-routes) serves its result,
+> and the [status page](status-page.md) shows it.
 
 ## Purpose
 

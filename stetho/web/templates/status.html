@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="{{ language }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ t("page.title") }}</title>
+<link rel="stylesheet" href="static/page.css">
+<script src="static/page.js" defer></script>
+</head>
+<body>
+<p id="refresh-failed" class="notice" role="alert" hidden>{{ t("page.refresh_failed") }}</p>
+<noscript><p class="notice">{{ t("page.no_script") }}</p></noscript>
+<main id="content">
+<header class="banner status-{{ page.status }}">
+<h1>{{ page.summary }}</h1>
+<p><span class="badge">{{ t("status." ~ page.status) }}</span>
+{% if page.checked %}<span>{{ t("page.checked") }} <time datetime="{{ page.checked.machine }}" title="{{ page.checked.exact }}">{{ page.checked.relative }}</time></span>
+{% else %}<span>{{ t("page.never_checked") }}</span>{% endif %}</p>
+</header>
+
+{% if page.problems %}
+<section>
+<h2>{{ t("page.problems") }}</h2>
+<div class="table-scroll">
+<table id="problems">
+<thead><tr>
+{% for column in ("status", "source", "problem", "advice") %}
+<th scope="col" aria-sort="{{ 'ascending' if column == 'status' else 'none' }}"><button type="button" data-sort="{{ column }}">{{ t("page.column." ~ column) }}</button></th>
+{% endfor %}
+</tr></thead>
+<tbody>
+{% for problem in page.problems %}
+<tr>
+<td data-sort-value="{{ problem.rank }}"><span class="pill status-{{ problem.status }}">{{ t("status." ~ problem.status) }}</span></td>
+<td data-label="{{ t('page.column.source') }}">{{ problem.source }}</td>
+<td data-label="{{ t('page.column.problem') }}">{{ problem.summary }}</td>
+<td data-label="{{ t('page.column.advice') }}">{{ problem.advice }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+</section>
+{% endif %}
+
+<section class="cards">
+{% for sensor in page.sensors %}
+<article class="card">
+<h2><span class="pill status-{{ sensor.status }}">{{ t("status." ~ sensor.status) }}</span> {{ sensor.title }}</h2>
+<p class="group">{{ sensor.group }}</p>
+<p>{{ sensor.summary }}</p>
+{% if sensor.advice %}<p class="advice"><strong>{{ t("page.column.advice") }}</strong> {{ sensor.advice }}</p>{% endif %}
+{% if sensor.details or sensor["items"] %}
+<details data-key="sensor-{{ sensor.id }}">
+<summary>{{ t("page.details") }}</summary>
+{% if sensor.details %}
+<dl>{% for detail in sensor.details %}<dt>{{ detail.label }}</dt><dd>{{ detail.value }}</dd>{% endfor %}</dl>
+{% endif %}
+{% for item in sensor["items"] %}
+<div class="item">
+<h3><span class="pill status-{{ item.status }}">{{ t("status." ~ item.status) }}</span> {{ item.label }}</h3>
+<p>{{ item.summary }}</p>
+{% if item.advice %}<p class="advice"><strong>{{ t("page.column.advice") }}</strong> {{ item.advice }}</p>{% endif %}
+{% if item.details %}<dl>{% for detail in item.details %}<dt>{{ detail.label }}</dt><dd>{{ detail.value }}</dd>{% endfor %}</dl>{% endif %}
+</div>
+{% endfor %}
+</details>
+{% endif %}
+</article>
+{% endfor %}
+</section>
+
+{% if page.anomalies %}
+<section>
+<details data-key="anomalies">
+<summary class="anomalies">{{ t("page.anomalies", count=page.anomalies | length) }}</summary>
+<div class="table-scroll">
+<table>
+<thead><tr>
+{% for column in ("module", "source", "code", "detail", "received", "expected", "first_seen", "last_seen", "count") %}
+<th scope="col">{{ t("page.anomaly." ~ column) }}</th>
+{% endfor %}
+</tr></thead>
+<tbody>
+{% for row in page.anomalies %}
+<tr>
+<td>{{ row.module }}</td><td>{{ row.source }}</td><td><code>{{ row.code }}</code></td><td>{{ row.message }}</td>
+<td>{{ row.received }}</td><td>{{ row.expected }}</td>
+{% for moment in (row.first_seen, row.last_seen) %}<td><time datetime="{{ moment.machine }}" title="{{ moment.exact }}">{{ moment.relative }}</time></td>{% endfor %}
+<td>{{ row.count }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+</details>
+</section>
+{% endif %}
+</main>
+</body>
+</html>

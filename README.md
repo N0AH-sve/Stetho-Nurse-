@@ -4,9 +4,9 @@ Monitoring for [Hermes Agent](https://github.com/NousResearch/hermes-agent): see
 whether it works, get an alert when it breaks, and repair it with predefined actions. Hermes
 itself is neither modified nor upgraded, and no LLM is involved.
 
-> **Status: early development.** STETHO starts, checks the `gateway` module periodically and
-> serves its state through a protected, read-only API. There is no status page yet, and NURSE
-> does not exist.
+> **Status: early development.** STETHO checks the `gateway` module periodically and shows its
+> state on a read-only status page and through an API. The other modules, the alerts and NURSE do
+> not exist yet, and STETHO has not been tried on a real Hermes installation.
 
 ## How it works
 
@@ -54,6 +54,9 @@ listens on every interface, and its password is empty.
 ```bash
 uv run python -m stetho --config config/stetho.yaml
 ```
+
+The status page is then at `http://127.0.0.1:8090/`. `hermes.data_dir` must point to a Hermes
+data directory, which is only read: never develop or test against an installation in use.
 
 | Command | Effect |
 | --- | --- |
