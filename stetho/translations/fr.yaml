@@ -142,3 +142,32 @@ page:
     first_seen: "Première fois"
     last_seen: "Dernière fois"
     count: "Nombre"
+platforms:
+  title: "Plateformes"
+  group: "Disponibilité"
+  summary:
+    connected: "Connectée"
+    disabled: "Désactivée"
+    paused: "En pause"
+    broken: "Non connectée : Hermes a abandonné cette plateforme"
+    waiting: "Non connectée depuis {age}"
+    unknown_state: "Dans un état que STETHO ne connaît pas"
+    attention: "Cette plateforme demande une intervention"
+    old: "État ancien, non vérifié"
+    not_assessed: "Non évaluée : le gateway ne fonctionne pas normalement"
+    unusable: "Impossible de vérifier les plateformes"
+    none_current: "Aucun état de plateforme ne vient du gateway en cours"
+    nothing: "Aucune plateforme à surveiller"
+    all_connected: "Toutes les plateformes sont connectées ({count})"
+    of_platform: "{name} : {summary}"
+  advice:
+    check_settings: "Lisez les journaux de Hermes, puis vérifiez les identifiants et les réglages de cette plateforme."
+    check_connection: "Lisez les journaux de Hermes et vérifiez la connexion. Redémarrer le gateway redémarre toutes les plateformes."
+    wait: "Attendez quelques minutes. Si cela dure, lisez les journaux de Hermes."
+    check_version: "Vérifiez la version de Hermes : STETHO a peut-être besoin d'une mise à jour."
+    check_attention: "Lisez les journaux de Hermes pour voir ce que demande cette plateforme."
+    check_data: "Vérifiez la version de Hermes et que STETHO peut lire ses données."
+  detail:
+    error: "Erreur"
+  value:
+    not_shown: "Non affichée : voir les journaux de Hermes"

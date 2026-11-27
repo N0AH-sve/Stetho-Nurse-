@@ -42,7 +42,10 @@ modules:
     #   late_after_minutes: 2
     #   down_after_minutes: 5
     #   missing_critical_after_minutes: 5
-  platforms: { enabled: true }
+  platforms:
+    enabled: true
+    # overrides:
+    #   critical_after_minutes: 5
   scheduler: { enabled: true }
   cron_jobs: { enabled: true }
   kanban: { enabled: true, boards: all }

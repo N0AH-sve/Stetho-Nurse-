@@ -1,0 +1,22 @@
+# Diagnosis rules of the platforms. A threshold can be changed in stetho.yaml, under
+# modules.platforms.overrides.
+
+thresholds:
+  critical_after_minutes: 5
+
+# What each state of a platform means.
+#   connected     healthy
+#   inactive      not used on purpose: shown only
+#   broken        critical at once, and no repair: a credential or setting is wrong
+#   waiting       a warning, then critical after the threshold
+states:
+  connected: connected
+  disabled: inactive
+  paused: inactive
+  fatal: broken
+  connecting: waiting
+  retrying: waiting
+  disconnected: waiting
+
+# The repair offered once a waiting platform is critical. It restarts every platform.
+repair: RESTART_GATEWAY

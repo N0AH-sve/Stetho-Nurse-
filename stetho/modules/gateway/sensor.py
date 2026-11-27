@@ -12,9 +12,10 @@ from stetho.modules.gateway.reader import (
     ROOT_PROFILE,
     STATE_FILE,
     GatewayReading,
+    ProfileReader,
     load_adapter,
-    read_gateway,
     read_gateways,
+    served_by_gateway,
 )
 from stetho.modules.gateway.rules import Verdict, evaluate, load_rules
 from stetho.results import Detail, Item, SensorOutcome, SensorResult, Status, worst_status
@@ -40,7 +41,7 @@ class GatewaySensor:
         self._adapter = load_adapter()
         self._rules = load_rules(config.modules.gateway.overrides)  # may raise `RulesError`
         self._translator = translator
-        self._seen: set[str] = set()
+        self._profiles = ProfileReader(config.hermes, MODULE, served_by_gateway)
         self._missing_since: dict[str, datetime] = {}
 
     @property
@@ -52,7 +53,14 @@ class GatewaySensor:
         return self._translator.text("gateway.group")
 
     def read(self, now: datetime, sleep: Sleep) -> SensorOutcome:
-        readings, global_anomalies = self._read_all(now, sleep)
+        found = read_gateways(
+            self._hermes,
+            adapter=self._adapter,
+            now=now,
+            sleep=sleep,
+            profiles=self._profiles,
+        )
+        readings, global_anomalies = found.gateways, found.anomalies
         expected = {reading.profile for reading in readings}
         self._missing_since = {
             name: since for name, since in self._missing_since.items() if name in expected
@@ -60,33 +68,6 @@ class GatewaySensor:
         diagnoses = tuple(self._diagnose(reading, now) for reading in readings)
         anomalies = (*global_anomalies, *(a for reading in readings for a in reading.anomalies))
         return SensorOutcome(self._result(diagnoses, global_anomalies, anomalies, now), anomalies)
-
-    def _read_all(
-        self, now: datetime, sleep: Sleep
-    ) -> tuple[list[GatewayReading], tuple[Anomaly, ...]]:
-        found = read_gateways(self._hermes, adapter=self._adapter, now=now, sleep=sleep)
-        readings = list(found.gateways)
-        if self._hermes.profiles == "auto":
-            # A profile seen once stays expected: its file must not disappear unnoticed.
-            listed = {reading.profile for reading in readings}
-            served = {
-                name
-                for reading in readings
-                if reading.profile == ROOT_PROFILE and reading.state
-                for name in reading.state.served_profiles
-            }
-            for profile in sorted(self._seen - listed - served):
-                readings.append(
-                    read_gateway(
-                        self._hermes.data_dir,
-                        profile,
-                        adapter=self._adapter,
-                        now=now,
-                        sleep=sleep,
-                    )
-                )
-            self._seen = {reading.profile for reading in readings}
-        return readings, found.anomalies
 
     def _diagnose(self, reading: GatewayReading, now: datetime) -> _Diagnosis:
         missing = any(

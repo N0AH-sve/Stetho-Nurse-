@@ -1,8 +1,8 @@
 # Architecture
 
-> Target architecture. Only these parts of STETHO are implemented: the core, the `gateway`
-> module, and a protected web server with the status page and the reading routes of the API. NURSE does not
-> exist yet.
+> Target architecture. Only these parts of STETHO are implemented: the core, the `gateway` and
+> `platforms` modules, and a protected web server with the status page and the reading routes of
+> the API. NURSE does not exist yet.
 
 ## Goal
 

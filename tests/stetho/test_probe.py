@@ -378,30 +378,32 @@ def test_interval_is_counted_from_the_start_of_a_pass() -> None:
     assert 25 < waits[0] <= 30
 
 
-def config(data_dir: Path, enabled: bool = True) -> Config:
+def config(data_dir: Path, *disabled: str) -> Config:
     document = yaml.safe_load(EXAMPLE.read_text(encoding="utf-8"))
     document["hermes"]["data_dir"] = str(data_dir)
-    document["modules"]["gateway"]["enabled"] = enabled
+    for name in disabled:
+        document["modules"][name]["enabled"] = False
     return parse_config(document)
 
 
 @pytest.mark.parametrize(
     ("scenario", "status"),
-    [("healthy", Status.OK), ("degraded", Status.WARN), ("stopped", Status.CRITICAL)],
+    # In `degraded`, one platform is in a fatal error.
+    [("healthy", Status.OK), ("degraded", Status.CRITICAL), ("stopped", Status.CRITICAL)],
 )
-def test_gateway_module_from_its_files_to_the_report(scenario: str, status: Status) -> None:
+def test_modules_from_their_files_to_the_report(scenario: str, status: Status) -> None:
     sensors = build_sensors(config(FIXTURES / scenario), TRANSLATOR)
 
     report = probe(*sensors).run_once()
 
     assert report.status is status
-    assert [result.id for result in report.sensors] == ["gateway"]
+    assert [result.id for result in report.sensors] == ["gateway", "platforms"]
 
 
 def test_gateway_anomalies_reach_the_report_and_end(tmp_path: Path) -> None:
     broken = (FIXTURES / "invalid" / "truncated-json" / "gateway_state.json").read_bytes()
     (tmp_path / "gateway_state.json").write_bytes(broken)
-    sensors = build_sensors(config(tmp_path), TRANSLATOR)
+    sensors = build_sensors(config(tmp_path, "platforms"), TRANSLATOR)
     runner = Probe(sensors, TRANSLATOR, timeout_seconds=5, clock=lambda: NOW, sleep=lambda _: None)
     assert entry_codes(runner.run_once()) == [("gateway", AnomalyCode.PARSE_ERROR, 1)]
     healthy = (FIXTURES / "healthy" / "gateway_state.json").read_bytes()
@@ -412,8 +414,14 @@ def test_gateway_anomalies_reach_the_report_and_end(tmp_path: Path) -> None:
     assert (report.status, report.anomalies) == (Status.OK, ())
 
 
-def test_disabled_module_has_no_sensor() -> None:
-    assert build_sensors(config(FIXTURES / "healthy", enabled=False), TRANSLATOR) == ()
+@pytest.mark.parametrize(
+    ("disabled", "expected"),
+    [(("gateway",), ["platforms"]), (("platforms",), ["gateway"]), (("gateway", "platforms"), [])],
+)
+def test_disabled_module_has_no_sensor(disabled: tuple[str, ...], expected: list[str]) -> None:
+    sensors = build_sensors(config(FIXTURES / "healthy", *disabled), TRANSLATOR)
+
+    assert [sensor.id for sensor in sensors] == expected
 
 
 def test_anomalies_stay_while_a_sensor_is_not_assessed() -> None:

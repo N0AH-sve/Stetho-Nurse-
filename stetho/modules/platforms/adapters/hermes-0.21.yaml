@@ -1,0 +1,22 @@
+# The platform entries that Hermes Agent v0.21 writes in gateway_state.json.
+# See docs/hermes/gateway.md.
+
+# Any other field of an entry is reported, so that this file gets updated.
+known_fields:
+  - error_code
+  - error_message
+  - needs_attention
+  - retrying_since
+  - state
+  - updated_at
+  - writer_pid
+  - writer_start_time
+
+platform_states:
+  - connecting
+  - connected
+  - retrying
+  - fatal
+  - paused
+  - disconnected
+  - disabled

@@ -55,7 +55,7 @@ def test_before_the_first_pass_nothing_looks_healthy(
     ("scenario", "status"),
     [
         ("healthy", "ok"),
-        ("degraded", "warn"),
+        ("degraded", "critical"),  # one platform is in a fatal error
         ("stopped", "critical"),
         ("invalid/truncated-json", "unknown"),
     ],

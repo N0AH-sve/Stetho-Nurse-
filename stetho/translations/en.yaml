@@ -142,3 +142,32 @@ page:
     first_seen: "First seen"
     last_seen: "Last seen"
     count: "Times"
+platforms:
+  title: "Platforms"
+  group: "Availability"
+  summary:
+    connected: "Connected"
+    disabled: "Disabled"
+    paused: "Paused"
+    broken: "Not connected: Hermes gave up on this platform"
+    waiting: "Not connected for {age}"
+    unknown_state: "In a state STETHO does not know"
+    attention: "This platform asks for attention"
+    old: "Former state, not checked"
+    not_assessed: "Not assessed: the gateway is not running normally"
+    unusable: "The platforms cannot be checked"
+    none_current: "No platform state comes from the running gateway"
+    nothing: "No platform to monitor"
+    all_connected: "All platforms are connected ({count})"
+    of_platform: "{name}: {summary}"
+  advice:
+    check_settings: "Read the Hermes logs, then check the credentials and settings of this platform."
+    check_connection: "Read the Hermes logs and check the connection. Restarting the gateway restarts every platform."
+    wait: "Wait a few minutes. If it lasts, read the Hermes logs."
+    check_version: "Check the version of Hermes: STETHO may need an update."
+    check_attention: "Read the Hermes logs to see what this platform needs."
+    check_data: "Check the version of Hermes and that STETHO can read its data."
+  detail:
+    error: "Error"
+  value:
+    not_shown: "Not shown: see the Hermes logs"

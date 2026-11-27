@@ -31,6 +31,7 @@ GATEWAY_THRESHOLDS = (
     "down_after_minutes",
     "missing_critical_after_minutes",
 )
+PLATFORMS_THRESHOLDS = ("critical_after_minutes",)
 
 
 class ConfigError(Exception):
@@ -106,6 +107,11 @@ class GatewaySettings(ModuleSettings):
 
 
 @dataclass(frozen=True)
+class PlatformsSettings(ModuleSettings):
+    overrides: Mapping[str, int]  # thresholds changed by the installation
+
+
+@dataclass(frozen=True)
 class KanbanSettings(ModuleSettings):
     boards: Literal["all"] | tuple[str, ...]
 
@@ -119,7 +125,7 @@ class SessionsSettings(ModuleSettings):
 @dataclass(frozen=True)
 class ModulesSettings:
     gateway: GatewaySettings
-    platforms: ModuleSettings
+    platforms: PlatformsSettings
     scheduler: ModuleSettings
     cron_jobs: ModuleSettings
     kanban: KanbanSettings
@@ -323,18 +329,31 @@ def _module(modules: _Section, key: str) -> ModuleSettings:
     return settings
 
 
-def _gateway(modules: _Section) -> GatewaySettings:
-    section = modules.section("gateway")
-    enabled = section.boolean("enabled")
+def _overrides(section: _Section, thresholds: tuple[str, ...]) -> Mapping[str, int]:
     overrides: dict[str, int] = {}
     if section.has("overrides"):
         changes = section.section("overrides")
-        for name in GATEWAY_THRESHOLDS:
+        for name in thresholds:
             if changes.has(name):
                 overrides[name] = changes.positive_int(name)
         changes.close()
+    return MappingProxyType(overrides)
+
+
+def _gateway(modules: _Section) -> GatewaySettings:
+    section = modules.section("gateway")
+    enabled = section.boolean("enabled")
+    overrides = _overrides(section, GATEWAY_THRESHOLDS)
     section.close()
-    return GatewaySettings(enabled=enabled, overrides=MappingProxyType(overrides))
+    return GatewaySettings(enabled=enabled, overrides=overrides)
+
+
+def _platforms(modules: _Section) -> PlatformsSettings:
+    section = modules.section("platforms")
+    enabled = section.boolean("enabled")
+    overrides = _overrides(section, PLATFORMS_THRESHOLDS)
+    section.close()
+    return PlatformsSettings(enabled=enabled, overrides=overrides)
 
 
 def _kanban(modules: _Section) -> KanbanSettings:
@@ -405,7 +424,7 @@ def parse_config(document: object) -> Config:
     section = root.section("modules")
     modules = ModulesSettings(
         gateway=_gateway(section),
-        platforms=_module(section, "platforms"),
+        platforms=_platforms(section),
         scheduler=_module(section, "scheduler"),
         cron_jobs=_module(section, "cron_jobs"),
         kanban=_kanban(section),

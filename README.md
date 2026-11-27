@@ -4,9 +4,10 @@ Monitoring for [Hermes Agent](https://github.com/NousResearch/hermes-agent): see
 whether it works, get an alert when it breaks, and repair it with predefined actions. Hermes
 itself is neither modified nor upgraded, and no LLM is involved.
 
-> **Status: early development.** STETHO checks the `gateway` module periodically and shows its
-> state on a read-only status page and through an API. The other modules, the alerts and NURSE do
-> not exist yet, and STETHO has not been tried on a real Hermes installation.
+> **Status: early development.** STETHO checks the `gateway` and `platforms` modules periodically
+> and shows their state on a read-only status page and through an API. The other modules, the
+> alerts and NURSE do not exist yet, and STETHO has not been tried on a real Hermes
+> installation.
 
 ## How it works
 
