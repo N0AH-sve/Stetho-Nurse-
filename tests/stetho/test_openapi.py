@@ -54,7 +54,9 @@ def test_routes_are_those_decided_for_now_and_later() -> None:
 
 
 def test_only_reading_routes_are_served() -> None:
-    assert all(method == "GET" for method, _ in SERVED)
+    served = [key for key, op in OPERATIONS.items() if op.get("x-stetho-served", True)]
+
+    assert {method for method, _ in served} == {"GET"}
 
 
 @pytest.mark.parametrize("key", sorted(OPERATIONS))
@@ -64,24 +66,42 @@ def test_every_route_but_health_requires_the_password(key: tuple[str, str]) -> N
         assert operation["security"] == []
     else:
         assert "security" not in operation  # the global one applies
-        assert "401" in operation["responses"]
+        assert operation["responses"]["401"] == {"$ref": "#/components/responses/Unauthorized"}
     assert CONTRACT["security"] == [{"basicAuth": []}]
+    scheme = CONTRACT["components"]["securitySchemes"]["basicAuth"]
+    assert (scheme["type"], scheme["scheme"]) == ("http", "basic")
+
+
+# The response each error code must point to. 400 includes a host name that is not allowed.
+ERRORS = {
+    "400": ("InvalidHost", "BadRequest"),
+    "401": ("Unauthorized",),
+    "403": ("Forbidden",),
+    "404": ("NotFound",),
+    "405": ("MethodNotAllowed",),
+    "415": ("UnsupportedMediaType",),
+    "429": ("TooManyRequests",),
+    "500": ("InternalError",),
+}
 
 
 @pytest.mark.parametrize("key", sorted(OPERATIONS))
 def test_every_route_describes_the_common_errors(key: tuple[str, str]) -> None:
-    # 400 includes a host name that is not allowed.
     assert {"400", "405", "500"} <= set(OPERATIONS[key]["responses"])
+
+
+@pytest.mark.parametrize("key", sorted(OPERATIONS))
+def test_each_error_code_points_to_its_response(key: tuple[str, str]) -> None:
+    for code, response in OPERATIONS[key]["responses"].items():
+        if code >= "400":
+            allowed = [{"$ref": f"#/components/responses/{name}"} for name in ERRORS[code]]
+            assert response in allowed, code
 
 
 def test_every_error_response_uses_the_same_format() -> None:
     for response in CONTRACT["components"]["responses"].values():
         schema = response["content"]["application/json"]["schema"]
         assert schema == {"$ref": "#/components/schemas/Error"}
-    for operation in OPERATIONS.values():
-        for code, response in operation["responses"].items():
-            if code >= "400":
-                assert response["$ref"].startswith("#/components/responses/")
 
 
 def test_prescription_needs_a_csrf_token() -> None:
@@ -90,6 +110,7 @@ def test_prescription_needs_a_csrf_token() -> None:
 
     assert (header["name"], header["in"], header["required"]) == ("X-CSRF-Token", "header", True)
     assert {"403", "415"} <= set(operation["responses"])
+    assert list(operation["requestBody"]["content"]) == ["application/json"]
 
 
 def test_enumerations_match_the_code() -> None:
@@ -119,4 +140,5 @@ def test_objects_are_closed_and_their_required_fields_exist() -> None:
 def test_example_server_is_not_a_real_one() -> None:
     (server,) = CONTRACT["servers"]
 
+    assert server["url"] == "https://{host}/stetho"
     assert server["variables"]["host"]["default"] == "example.com"

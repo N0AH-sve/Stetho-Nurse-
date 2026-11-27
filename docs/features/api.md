@@ -32,8 +32,9 @@ sessions and known weaknesses will be added with their modules.
   `null` or an empty list, not left out.
 - **Advice.** A sensor and its items have an `advice`: what to do, or `null`. It is not yet in
   the [result format](probe.md#result-format) of the code.
-- **Report.** `summary` is the sentence of the banner. `stale` says that no new report arrived in
-  time; every status is then `unknown`. Before the first pass, the status is `unknown`, there is
+- **Report.** `summary` is the sentence of the banner. A report is **stale** when no new one has
+  arrived for more than the longer of three probe intervals, or the sensor time limit plus one
+  interval. `stale` is then true and every status is `unknown`. Before the first pass, the status is `unknown`, there is
   no sensor and `checked_at` is `null`.
 - **Anomalies.** Only the current ones: without history, there is no `active` field and no
   `since` or `active_only` filter. `received_hidden` tells a hidden value from an absent one.

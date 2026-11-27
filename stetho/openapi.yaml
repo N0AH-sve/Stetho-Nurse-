@@ -52,7 +52,9 @@ paths:
       summary: Overall state and every sensor
       description: >
         Before the first pass, the status is unknown, there is no sensor and checked_at is null.
-        When no new report has arrived for too long, stale is true and every status is unknown.
+        A report is stale when no new one has arrived for more than the longer of three probe
+        intervals, or the sensor time limit plus one interval. Then stale is true and every status
+        is unknown.
       responses:
         "200":
           description: The latest report.
@@ -95,8 +97,8 @@ paths:
       tags: [state]
       summary: Current anomalies
       description: >
-        In the order in which they appeared. No history is kept. An unknown value of a filter is
-        refused; a well-formed module without anomalies gives an empty list.
+        In the order in which they appeared. No history is kept. An unknown code or a malformed
+        module is refused; a well-formed module without anomalies gives an empty list.
       parameters:
         - name: module
           in: query
@@ -278,6 +280,10 @@ components:
       content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
     MethodNotAllowed:
       description: This method is not accepted here.
+      headers:
+        Allow:
+          required: true
+          schema: { type: string }
       content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
     UnsupportedMediaType:
       description: Only JSON is accepted.
@@ -508,7 +514,12 @@ components:
         status: { enum: [queued, done, refused, failed, timeout, unexpected, unverified] }
         refusal_reason: { type: [string, "null"] }
         exit_code: { type: [integer, "null"] }
-        output_excerpt: { type: [string, "null"], maxLength: 2048 }
+        output_excerpt:
+          description: >
+            Start of the command output, with everything that looks like a key or a token
+            masked. It must hold no message content.
+          type: [string, "null"]
+          maxLength: 2048
         anomaly:
           oneOf: [{ $ref: "#/components/schemas/AnomalyCode" }, { type: "null" }]
         started_at:
