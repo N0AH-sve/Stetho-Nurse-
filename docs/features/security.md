@@ -38,6 +38,9 @@ Describes the rights of each component, secrets handling and the remaining risks
 
 ## Open points
 
+- **Source of the requester name.** It comes from the reverse proxy, but STETHO ignores the HTTP
+  Basic user name and the `X-Forwarded-*` headers. Settle where it is read before the
+  [actions](api.md#actions) are served.
 - **Access to owner-only files.** Several monitored files are readable by their owner only,
   which conflicts with keeping secret files out of reach. See
   [file access](../hermes/permissions.md#consequence-1-a-separate-user-cannot-read-the-data).

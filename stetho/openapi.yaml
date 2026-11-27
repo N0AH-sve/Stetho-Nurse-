@@ -7,7 +7,8 @@ info:
   description: >
     Reads the state of Hermes, without any message content, and later submits prescriptions to
     NURSE. Every error follows the Error schema. Every request must use a host name allowed by the
-    installation. When STETHO has no password of its own, a reverse proxy must authenticate the
+    installation. An unknown or repeated query parameter is refused. When STETHO has no password
+    of its own, a reverse proxy must authenticate the
     users: STETHO then accepts requests without credentials. Texts are in the language of the
     installation. Operations marked x-stetho-served false are not served yet.
 
@@ -41,7 +42,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Health" }
-        "400": { $ref: "#/components/responses/InvalidHost" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/InternalError" }
 
@@ -53,15 +54,17 @@ paths:
       description: >
         Before the first pass, the status is unknown, there is no sensor and checked_at is null.
         A report is stale when no new one has arrived for more than the longer of three probe
-        intervals, or the sensor time limit plus one interval. Then stale is true and every status
-        is unknown.
+        intervals, or the sensor time limit plus one interval. Then stale is true, every status is
+        unknown, and every summary says that the data is out of date. Advice is null, actions and
+        details are empty, and the last known anomalies are kept. Before the first pass, stale is
+        false.
       responses:
         "200":
           description: The latest report.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/StatusReport" }
-        "400": { $ref: "#/components/responses/InvalidHost" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/InternalError" }
@@ -73,7 +76,8 @@ paths:
       summary: One sensor
       description: >
         Not found when the latest report has no such sensor, which includes the time before the
-        first pass. A stale report gives an unknown status, as for the overall state.
+        first pass, or when the identifier is malformed. A stale report changes the sensor as it
+        does in the overall state.
       parameters:
         - name: sensor_id
           in: path
@@ -85,7 +89,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Sensor" }
-        "400": { $ref: "#/components/responses/InvalidHost" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
@@ -98,7 +102,9 @@ paths:
       summary: Current anomalies
       description: >
         In the order in which they appeared. No history is kept. An unknown code or a malformed
-        module is refused; a well-formed module without anomalies gives an empty list.
+        module is refused; a well-formed module without anomalies gives an empty list. An empty
+        list means nothing only with a checked_at and a stale that is false. When the report is
+        stale, these are the last known anomalies.
       parameters:
         - name: module
           in: query
@@ -113,9 +119,7 @@ paths:
           description: The current anomalies.
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/Anomaly" }
+              schema: { $ref: "#/components/schemas/AnomalyList" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
@@ -132,7 +136,7 @@ paths:
           content:
             application/json:
               schema: { type: object }
-        "400": { $ref: "#/components/responses/InvalidHost" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/InternalError" }
@@ -148,7 +152,7 @@ paths:
           content:
             text/html:
               schema: { type: string }
-        "400": { $ref: "#/components/responses/InvalidHost" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/InternalError" }
@@ -168,7 +172,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/CsrfToken" }
-        "400": { $ref: "#/components/responses/InvalidHost" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/InternalError" }
@@ -181,13 +185,13 @@ paths:
       summary: Ask NURSE for an action
       description: >
         STETHO checks the format and writes the file. NURSE checks everything again and may still
-        refuse. Only JSON is accepted. A request that the browser reports as coming from another
-        site is refused.
+        refuse. Only JSON is accepted, up to 4 KiB. A request that the browser reports as coming
+        from another site is refused.
       parameters:
         - name: X-CSRF-Token
           in: header
           required: true
-          schema: { type: string }
+          schema: { type: string, maxLength: 256 }
       requestBody:
         required: true
         content:
@@ -203,6 +207,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
         "415": { $ref: "#/components/responses/UnsupportedMediaType" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "500": { $ref: "#/components/responses/InternalError" }
@@ -246,7 +251,7 @@ paths:
                 type: array
                 maxItems: 100
                 items: { $ref: "#/components/schemas/ActionLogEntry" }
-        "400": { $ref: "#/components/responses/InvalidHost" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/InternalError" }
@@ -260,10 +265,9 @@ components:
 
   responses:
     BadRequest:
-      description: Invalid request, or host name that is not allowed.
-      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
-    InvalidHost:
-      description: The host name is not allowed.
+      description: >
+        Invalid request, such as an unknown or repeated query parameter, or host name that is not
+        allowed.
       content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
     Unauthorized:
       description: Password required or wrong.
@@ -284,6 +288,9 @@ components:
         Allow:
           required: true
           schema: { type: string }
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    PayloadTooLarge:
+      description: The request is larger than 4 KiB.
       content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
     UnsupportedMediaType:
       description: Only JSON is accepted.
@@ -311,8 +318,8 @@ components:
         code:
           description: Stable, for programs.
           enum: [invalid_request, invalid_host, unauthorized, not_found, method_not_allowed,
-                 internal_error, csrf_invalid, cross_site, unsupported_media_type, bad_target,
-                 rate_limited]
+                 internal_error, csrf_invalid, cross_site, payload_too_large,
+                 unsupported_media_type, bad_target, rate_limited]
         message:
           description: In the language of the installation.
           type: string
@@ -361,8 +368,8 @@ components:
 
     Sensor:
       type: object
-      required: [id, title, group, status, summary, advice, checked_at, details, items, actions,
-                 anomalies]
+      required: [id, title, group, status, summary, advice, checked_at, stale, details, items,
+                 actions, anomalies]
       additionalProperties: false
       properties:
         id: { $ref: "#/components/schemas/SensorId" }
@@ -375,6 +382,7 @@ components:
           type: [string, "null"]
           minLength: 1
         checked_at: { $ref: "#/components/schemas/Timestamp" }
+        stale: { type: boolean }
         details:
           type: array
           items: { $ref: "#/components/schemas/Detail" }
@@ -405,6 +413,19 @@ components:
           type: array
           items: { $ref: "#/components/schemas/Sensor" }
 
+    AnomalyList:
+      type: object
+      required: [checked_at, stale, anomalies]
+      additionalProperties: false
+      properties:
+        checked_at:
+          description: Time of the latest pass, or null before the first one.
+          oneOf: [{ $ref: "#/components/schemas/Timestamp" }, { type: "null" }]
+        stale: { type: boolean }
+        anomalies:
+          type: array
+          items: { $ref: "#/components/schemas/Anomaly" }
+
     AnomalyCode:
       enum: [source_missing, source_unreadable, parse_error, unexpected_value, schema_changed,
              implausible_value, sensor_error, sensor_timeout, action_failed, action_timeout,
@@ -413,7 +434,8 @@ components:
     Anomaly:
       type: object
       required: [id, code, module, message, source, field, received, received_hidden, expected,
-                 error, action, target, first_seen, last_seen, count]
+                 reason, error, action, target, exit_code, timeout_seconds, first_seen, last_seen,
+                 count]
       additionalProperties: false
       properties:
         id: { type: string, pattern: "^[0-9a-f]{16}$" }
@@ -434,6 +456,11 @@ components:
         expected:
           type: array
           items: { type: string }
+        reason:
+          description: Why a source cannot be read.
+          oneOf: [{ $ref: "#/components/schemas/UnreadableReason" }, { type: "null" }]
+        exit_code: { type: [integer, "null"] }
+        timeout_seconds: { type: [integer, "null"], minimum: 1 }
         error:
           description: Type and place of an internal error, never its message.
           type: [string, "null"]
@@ -444,6 +471,9 @@ components:
         first_seen: { $ref: "#/components/schemas/Timestamp" }
         last_seen: { $ref: "#/components/schemas/Timestamp" }
         count: { type: integer, minimum: 1 }
+
+    UnreadableReason:
+      enum: [permission_denied, locked, other]
 
     ActionCode:
       type: string
@@ -480,7 +510,6 @@ components:
         action: { $ref: "#/components/schemas/ActionCode" }
         target:
           oneOf: [{ $ref: "#/components/schemas/ActionTarget" }, { type: "null" }]
-        reason: { type: string, maxLength: 200 }
 
     PrescriptionQueued:
       type: object
@@ -493,7 +522,7 @@ components:
     Prescription:
       description: File written in the prescriptions directory and read by NURSE.
       type: object
-      required: [rx_id, action, origin, requested_by, created_at]
+      required: [rx_id, action, target, origin, requested_by, created_at]
       additionalProperties: false
       properties:
         rx_id: { $ref: "#/components/schemas/PrescriptionId" }
@@ -501,18 +530,28 @@ components:
         target:
           oneOf: [{ $ref: "#/components/schemas/ActionTarget" }, { type: "null" }]
         origin: { enum: [manual, auto] }
-        requested_by: { $ref: "#/components/schemas/Text" }
+        requested_by:
+          description: No control character. Where the name comes from is still to be settled.
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[^\u0000-\u001F\u007F-\u009F]+$'
+
         created_at: { $ref: "#/components/schemas/Timestamp" }
 
     PrescriptionResult:
       description: File written by NURSE in the results directory.
       type: object
-      required: [rx_id, status]
+      required: [rx_id, status, refusal_reason, exit_code, output_excerpt, anomaly, started_at,
+                 finished_at, verified]
       additionalProperties: false
       properties:
         rx_id: { $ref: "#/components/schemas/PrescriptionId" }
         status: { enum: [queued, done, refused, failed, timeout, unexpected, unverified] }
-        refusal_reason: { type: [string, "null"] }
+        refusal_reason:
+          description: A code. The list of codes comes with NURSE.
+          type: [string, "null"]
+          pattern: "^[a-z][a-z0-9_]{0,127}$"
         exit_code: { type: [integer, "null"] }
         output_excerpt:
           description: >

@@ -1,12 +1,13 @@
 """Checks of the hand-written contract itself. The responses are checked against it elsewhere."""
 
+import re
 from pathlib import Path
 from typing import Any
 
 import pytest
 from openapi_spec_validator import validate
 
-from stetho.anomalies import AnomalyCode
+from stetho.anomalies import AnomalyCode, UnreadableReason
 from stetho.patterns import ACTION_CODE, ACTION_TARGET, SENSOR_ID
 from stetho.results import Status
 from stetho.yamlfile import load_yaml
@@ -74,11 +75,12 @@ def test_every_route_but_health_requires_the_password(key: tuple[str, str]) -> N
 
 # The response each error code must point to. 400 includes a host name that is not allowed.
 ERRORS = {
-    "400": ("InvalidHost", "BadRequest"),
+    "400": ("BadRequest",),
     "401": ("Unauthorized",),
     "403": ("Forbidden",),
     "404": ("NotFound",),
     "405": ("MethodNotAllowed",),
+    "413": ("PayloadTooLarge",),
     "415": ("UnsupportedMediaType",),
     "429": ("TooManyRequests",),
     "500": ("InternalError",),
@@ -109,13 +111,15 @@ def test_prescription_needs_a_csrf_token() -> None:
     (header,) = operation["parameters"]
 
     assert (header["name"], header["in"], header["required"]) == ("X-CSRF-Token", "header", True)
-    assert {"403", "415"} <= set(operation["responses"])
+    assert header["schema"]["maxLength"] == 256
+    assert {"403", "413", "415"} <= set(operation["responses"])
     assert list(operation["requestBody"]["content"]) == ["application/json"]
 
 
 def test_enumerations_match_the_code() -> None:
     assert SCHEMAS["Status"]["enum"] == [status.value for status in Status]
     assert SCHEMAS["AnomalyCode"]["enum"] == [code.value for code in AnomalyCode]
+    assert SCHEMAS["UnreadableReason"]["enum"] == [reason.value for reason in UnreadableReason]
 
 
 @pytest.mark.parametrize(
@@ -135,6 +139,55 @@ def test_objects_are_closed_and_their_required_fields_exist() -> None:
         if schema.get("type") == "object":
             assert schema["additionalProperties"] is False, name
             assert set(schema["required"]) <= set(schema["properties"]), name
+
+
+def test_responses_and_exchanged_files_require_every_field() -> None:
+    # A request is the only object that may leave a field out.
+    for name, schema in SCHEMAS.items():
+        if schema.get("type") == "object" and name != "PrescriptionRequest":
+            assert set(schema["required"]) == set(schema["properties"]), name
+
+
+def test_request_holds_only_what_reaches_nurse() -> None:
+    assert set(SCHEMAS["PrescriptionRequest"]["properties"]) <= set(
+        SCHEMAS["Prescription"]["properties"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("value", "accepted"),
+    [
+        ("shared-account", True),
+        ("Zoé Martin", True),
+        ("a\nb", False),
+        ("a\x00", False),
+        ("a\x7f", False),
+        ("a\x9b", False),
+    ],
+)
+def test_requester_name_has_no_control_character(value: str, accepted: bool) -> None:
+    schema = SCHEMAS["Prescription"]["properties"]["requested_by"]
+
+    assert bool(re.fullmatch(schema["pattern"], value)) is accepted
+    assert schema["maxLength"] == 64
+
+
+@pytest.mark.parametrize(
+    ("value", "accepted"), [("a" * 128, True), ("a" * 129, False), ("Not a code", False)]
+)
+def test_refusal_reason_is_a_short_code(value: str, accepted: bool) -> None:
+    pattern = SCHEMAS["PrescriptionResult"]["properties"]["refusal_reason"]["pattern"]
+
+    assert bool(re.fullmatch(pattern, value)) is accepted
+
+
+def test_anomaly_list_says_when_it_was_checked() -> None:
+    response = OPERATIONS["GET", "/api/v1/anomalies"]["responses"]["200"]
+
+    assert response["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/AnomalyList"
+    }
+    assert {"checked_at", "stale"} <= set(SCHEMAS["AnomalyList"]["required"])
 
 
 def test_example_server_is_not_a_real_one() -> None:

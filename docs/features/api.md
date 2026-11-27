@@ -17,7 +17,7 @@ Schemas of the files exchanged with NURSE (`Prescription`, `PrescriptionResult`)
 | `GET /health` | The server answers; says nothing about Hermes. No password | Planned in this step |
 | `GET /api/v1/status` | Overall state and every sensor | Planned in this step |
 | `GET /api/v1/sensors/{sensor_id}` | One sensor | Planned in this step |
-| `GET /api/v1/anomalies` | Current anomalies, filtered by module and code | Planned in this step |
+| `GET /api/v1/anomalies` | Current anomalies with the time of their reading, filtered by module and code | Planned in this step |
 | `GET /api/v1/openapi.json`, `GET /api/docs` | The contract, and a readable page made from it | Planned in this step |
 | `GET /api/v1/csrf-token` | Token needed to submit a prescription | Later |
 | `POST /api/v1/prescriptions`, `GET /api/v1/prescriptions/{rx_id}` | Ask for an action and follow it | Later |
@@ -28,19 +28,40 @@ sessions and known weaknesses will be added with their modules.
 
 - **One file.** There is no schema per module: the details of a sensor are always label and value
   pairs.
-- **Closed objects.** A response holds the described fields only. A field with nothing to say is
-  `null` or an empty list, not left out.
+- **Closed objects.** A response, and a file exchanged with NURSE, holds the described fields
+  only. A field with nothing to say is `null` or an empty list, not left out. Only a request may
+  leave a field out.
 - **Advice.** A sensor and its items have an `advice`: what to do, or `null`. It is not yet in
   the [result format](probe.md#result-format) of the code.
 - **Report.** `summary` is the sentence of the banner. A report is **stale** when no new one has
   arrived for more than the longer of three probe intervals, or the sensor time limit plus one
-  interval. `stale` is then true and every status is `unknown`. Before the first pass, the status is `unknown`, there is
-  no sensor and `checked_at` is `null`.
-- **Anomalies.** Only the current ones: without history, there is no `active` field and no
-  `since` or `active_only` filter. `received_hidden` tells a hidden value from an absent one.
+  interval. `stale` is then true, every status is `unknown`, and every summary says that the data
+  is out of date. Advice is `null`, actions and details are empty, and the last known anomalies
+  are kept: an old healthy sentence or repair button must not stay. Each sensor has `stale` too.
+  Before the first pass, the status is `unknown`, `stale` is false, there is no sensor and
+  `checked_at` is `null`.
+- **Anomalies.** The answer holds `checked_at`, `stale` and the list, so that an empty list
+  cannot be read as healthy when nothing was checked. Only the current ones: without history,
+  there is no `active` field and no `since` or `active_only` filter. `received_hidden` tells a
+  hidden value from an absent one. The reason, exit code and time limit are fields too, `null`
+  when they do not apply.
+- **Parameters.** An unknown or repeated query parameter is refused with 400. A malformed sensor
+  identifier gives 404.
 - **Errors.** `code` is stable; `message` is in the language of the installation.
 - **Versioning.** Routes are under `/api/v1`. A breaking change opens `/api/v2`, and `v1` stays
   served during the migration.
+
+## Actions
+
+Described now, served later.
+
+- **Request.** It holds the action and an optional target, which are what reaches NURSE. There is
+  no free reason.
+- **Size.** A request is limited to 4 KiB, like the file NURSE reads, and refused with 413 above
+  it. The CSRF token is limited to 256 characters.
+- **Requester.** `requested_by` has up to 64 characters and no control character.
+- **Refusal.** `refusal_reason` is a short code of up to 128 characters. The codes come with
+  NURSE.
 
 ## Security
 
@@ -66,7 +87,8 @@ Decided, and not implemented yet.
 
 `tests/stetho/test_openapi.py` checks that the contract is a valid OpenAPI 3.1 document, and
 that its routes, protections, errors, enumerations and patterns match the decisions and the code.
-No response is checked yet.
+No response is checked yet. These checks will use `openapi-schema-validator`, which is typed,
+instead of `jsonschema`, which is not.
 
 ## Decisions
 
