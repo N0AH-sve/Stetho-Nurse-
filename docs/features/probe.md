@@ -37,6 +37,7 @@ Defined in `stetho/results.py`.
 | `actions` | Action codes offered as buttons |
 | `advice` | What to do, or nothing; not empty when given |
 | `anomalies` | Codes of the current [anomalies](anomalies.md), without repeats |
+| `assessed` | False when it was not checked on purpose; true by default |
 
 An **item** has an `id`, a `label`, a `status`, a `summary`, an optional `advice`, `details` and
 `actions`. It has no sub-items. Its `id` is not empty and is unique within its sensor.
@@ -48,6 +49,13 @@ An **item** has an `id`, a `label`, a `status`, a `summary`, an optional `advice
   least as severe, and cannot be `info`. A green card therefore cannot hide a failing item. The
   sensor may be more severe than its items, for example when its source has a problem. Items
   that are `ok` or `info` set no limit.
+- **Not assessed.** Something is not assessed when it is not checked on purpose, because what it
+  depends on is down: its file may say anything. It is then `unknown`, without advice or action,
+  explains why in its sentence, and is **not a problem of its own**: no line among the problems,
+  and no alert. Its card stays visible, marked "Not assessed". Since it is `unknown`, the card
+  and the page are never healthy. A sensor is not assessed when nothing that was checked
+  explains its status; it then holds no assessed problem and no anomaly of its own, though it may
+  hold `ok` or `info` items that were checked. A stale report counts as assessed.
 - **Invalid result.** It cannot be built: `ValueError` is raised, without quoting any value.
 
 ## Probe
@@ -79,7 +87,8 @@ logged and does not end the monitoring.
 - After a **complete reading**, the anomalies of the sensor that were not seen again are over.
   Each one is counted once per reading.
 - After a **crash or timeout**, nothing was checked: earlier anomalies stay. Only an earlier
-  failure of the other kind ends.
+  failure of the other kind ends. Earlier anomalies also stay while a sensor is
+  [not assessed](#result-format), until it is checked again.
 - The log has a line when an anomaly **starts** and when it **ends**, not at each pass. It gives
   the module, code, source, field, action and target, never a received value. For an internal
   error, it adds the type and the calls in STETHO, again when they change.

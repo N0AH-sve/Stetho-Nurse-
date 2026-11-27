@@ -414,3 +414,30 @@ def test_gateway_anomalies_reach_the_report_and_end(tmp_path: Path) -> None:
 
 def test_disabled_module_has_no_sensor() -> None:
     assert build_sensors(config(FIXTURES / "healthy", enabled=False), TRANSLATOR) == ()
+
+
+def test_anomalies_stay_while_a_sensor_is_not_assessed() -> None:
+    sensor = FakeSensor()
+    sensor.finds(parse_error())
+    runner = probe(sensor)
+    runner.run_once()
+
+    def not_assessed(_now: datetime, _sleep: Sleep) -> SensorOutcome:
+        card = SensorResult(
+            id="one",
+            title="Title",
+            group="Group",
+            status=Status.UNKNOWN,
+            summary="Not checked",
+            checked_at=NOW,
+            assessed=False,
+        )
+        return SensorOutcome(card, ())
+
+    sensor.behaviour = not_assessed
+    skipped = runner.run_once()
+    sensor.behaviour = sensor.healthy
+    checked = runner.run_once()
+
+    assert entry_codes(skipped) == [("one", AnomalyCode.PARSE_ERROR, 1)]
+    assert checked.anomalies == ()

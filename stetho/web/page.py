@@ -64,7 +64,7 @@ def _problems(sensors: tuple[SensorResult, ...]) -> tuple[Problem, ...]:
     found: list[Problem] = []
     for sensor in sensors:
         # The failing items say more than the card that sums them up.
-        items = [item for item in sensor.items if item.status in _PROBLEMS]
+        items = [item for item in sensor.items if item.status in _PROBLEMS and item.assessed]
         for item in items:
             found.append(
                 Problem(
@@ -76,7 +76,7 @@ def _problems(sensors: tuple[SensorResult, ...]) -> tuple[Problem, ...]:
                 )
             )
         covered = any(item.status is sensor.status for item in items)
-        if sensor.status in _PROBLEMS and not covered:
+        if sensor.assessed and sensor.status in _PROBLEMS and not covered:
             found.append(
                 Problem(
                     sensor.status,

@@ -340,6 +340,13 @@ components:
       type: string
       format: date-time
 
+    Assessed:
+      description: >
+        False when something was not checked on purpose, because what it depends on is down; for a
+        sensor, when nothing that was checked explains its status. The status is then unknown,
+        without advice or action, and it is not a problem of its own. A stale report is assessed.
+      type: boolean
+
     Detail:
       type: object
       required: [label, value]
@@ -350,7 +357,7 @@ components:
 
     Item:
       type: object
-      required: [id, label, status, summary, advice, details, actions]
+      required: [id, label, status, summary, advice, details, actions, assessed]
       additionalProperties: false
       properties:
         id: { $ref: "#/components/schemas/Text" }
@@ -365,11 +372,12 @@ components:
           type: array
           items: { $ref: "#/components/schemas/Detail" }
         actions: { $ref: "#/components/schemas/ActionCodes" }
+        assessed: { $ref: "#/components/schemas/Assessed" }
 
     Sensor:
       type: object
       required: [id, title, group, status, summary, advice, checked_at, stale, details, items,
-                 actions, anomalies]
+                 actions, anomalies, assessed]
       additionalProperties: false
       properties:
         id: { $ref: "#/components/schemas/SensorId" }
@@ -390,6 +398,7 @@ components:
           type: array
           items: { $ref: "#/components/schemas/Item" }
         actions: { $ref: "#/components/schemas/ActionCodes" }
+        assessed: { $ref: "#/components/schemas/Assessed" }
         anomalies:
           type: array
           uniqueItems: true

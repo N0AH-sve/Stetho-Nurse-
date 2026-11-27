@@ -117,6 +117,7 @@ api:
     method_not_allowed: "Cette méthode n'est pas acceptée."
     internal_error: "STETHO a rencontré une erreur."
 page:
+  not_assessed: "Non évalué"
   title: "État de Hermes"
   refresh_failed: "La page ne s'actualise plus. Ce qui est affiché n'est peut-être plus à jour."
   no_script: "JavaScript est désactivé : rechargez la page pour l'actualiser."

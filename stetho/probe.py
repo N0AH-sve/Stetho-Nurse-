@@ -157,7 +157,9 @@ class Probe:
                 )
                 return self._failed(sensor, anomaly, now)
             else:
-                self._settle(sensor.id, run.outcome.anomalies, now)
+                # Not assessed: nothing was checked again, so earlier anomalies stay.
+                if run.outcome.result.assessed:
+                    self._settle(sensor.id, run.outcome.anomalies, now)
                 return run.outcome.result
         return self._failed(sensor, Anomaly(code=AnomalyCode.SENSOR_TIMEOUT, module=sensor.id), now)
 
