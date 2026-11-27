@@ -5,16 +5,14 @@ that breaks a rule below cannot be built: it raises `ValueError`. Messages never
 which may come from Hermes.
 """
 
-import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from types import MappingProxyType
 
-_SENSOR_ID = re.compile(r"[a-z][a-z0-9_]{0,63}")
-# The same pattern as `ActionCode` in the API. NURSE decides which codes exist.
-_ACTION_CODE = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
+from stetho.anomalies import AnomalyCode
+from stetho.patterns import ACTION_CODE, SENSOR_ID
 
 
 class Status(StrEnum):
@@ -49,7 +47,7 @@ def _require_text(value: str, name: str) -> None:
 
 
 def _check_actions(actions: tuple[str, ...]) -> None:
-    if not all(_ACTION_CODE.fullmatch(code) for code in actions):
+    if not all(ACTION_CODE.fullmatch(code) for code in actions):
         raise ValueError("invalid action code")
     if len(set(actions)) != len(actions):
         raise ValueError("repeated action code")
@@ -95,9 +93,10 @@ class SensorResult:
     details: tuple[Detail, ...] = ()
     items: tuple[Item, ...] = ()
     actions: tuple[str, ...] = ()
+    anomalies: tuple[AnomalyCode, ...] = ()  # why the sensor may not be able to tell
 
     def __post_init__(self) -> None:
-        if not _SENSOR_ID.fullmatch(self.id):
+        if not SENSOR_ID.fullmatch(self.id):
             raise ValueError("invalid sensor id")
         _require_text(self.title, "title")
         _require_text(self.group, "group")
@@ -105,6 +104,8 @@ class SensorResult:
         if self.checked_at.utcoffset() is None:
             raise ValueError("checked_at must have a time zone")
         _check_actions(self.actions)
+        if len(set(self.anomalies)) != len(self.anomalies):
+            raise ValueError("repeated anomaly code")
         if len({item.id for item in self.items}) != len(self.items):
             raise ValueError("repeated item id")
         self._check_status_covers_items()
