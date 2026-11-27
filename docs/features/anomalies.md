@@ -11,8 +11,9 @@ STETHO never hides an error and never shows `ok` when it could not check.
 
 ## Codes
 
-"Expected behaviour" is what the part that raises the anomaly has to do. **Only the reading
-retries are implemented: the effects on statuses and on actions are not.**
+"Expected behaviour" is what the part that raises the anomaly has to do. **So far, the reading
+retries and the effects on the [`gateway` rules](gateway.md#rules) are implemented. The effects
+on actions are not.**
 
 | Code | When | Expected behaviour | What to do |
 | --- | --- | --- | --- |
@@ -111,7 +112,7 @@ a summary holds no message and no outside path.
 
 ## Planned content
 
-- Effects on statuses, with the rules and the probe
+- Effects on statuses for the other modules, with their rules
 - Writing internal errors to the log
 - End of an anomaly, history kept for 7 days and saving, with the probe
 - Alerts: when an anomaly lasts for 2 checks, at most once an hour for the same one;

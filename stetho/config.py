@@ -18,6 +18,12 @@ from stetho.yamlfile import YamlFileError, load_yaml
 
 _PRINTABLE_KEY = re.compile(r"[A-Za-z0-9_-]{1,40}")
 _MAX_PORT = 65535
+# The thresholds an installation may change, as in the rules of the module.
+GATEWAY_THRESHOLDS = (
+    "late_after_minutes",
+    "down_after_minutes",
+    "missing_critical_after_minutes",
+)
 
 
 class ConfigError(Exception):
@@ -87,6 +93,11 @@ class ModuleSettings:
 
 
 @dataclass(frozen=True)
+class GatewaySettings(ModuleSettings):
+    overrides: Mapping[str, int]  # thresholds changed by the installation
+
+
+@dataclass(frozen=True)
 class KanbanSettings(ModuleSettings):
     boards: Literal["all"] | tuple[str, ...]
 
@@ -99,7 +110,7 @@ class SessionsSettings(ModuleSettings):
 
 @dataclass(frozen=True)
 class ModulesSettings:
-    gateway: ModuleSettings
+    gateway: GatewaySettings
     platforms: ModuleSettings
     scheduler: ModuleSettings
     cron_jobs: ModuleSettings
@@ -250,6 +261,20 @@ def _module(modules: _Section, key: str) -> ModuleSettings:
     return settings
 
 
+def _gateway(modules: _Section) -> GatewaySettings:
+    section = modules.section("gateway")
+    enabled = section.boolean("enabled")
+    overrides: dict[str, int] = {}
+    if section.has("overrides"):
+        changes = section.section("overrides")
+        for name in GATEWAY_THRESHOLDS:
+            if changes.has(name):
+                overrides[name] = changes.positive_int(name)
+        changes.close()
+    section.close()
+    return GatewaySettings(enabled=enabled, overrides=MappingProxyType(overrides))
+
+
 def _kanban(modules: _Section) -> KanbanSettings:
     section = modules.section("kanban")
     enabled = section.boolean("enabled")
@@ -270,7 +295,10 @@ def _sessions(modules: _Section) -> SessionsSettings:
 
 
 def parse_config(document: object) -> Config:
-    """Check a parsed settings file. Every setting is required, except `language`."""
+    """Check a parsed settings file.
+
+    Every setting is required, except `language` and the overrides.
+    """
     root = _Section(document, "")
     language = root.choice("language", Language) if root.has("language") else Language.EN
     timezone = _timezone(root)
@@ -310,7 +338,7 @@ def parse_config(document: object) -> Config:
 
     section = root.section("modules")
     modules = ModulesSettings(
-        gateway=_module(section, "gateway"),
+        gateway=_gateway(section),
         platforms=_module(section, "platforms"),
         scheduler=_module(section, "scheduler"),
         cron_jobs=_module(section, "cron_jobs"),

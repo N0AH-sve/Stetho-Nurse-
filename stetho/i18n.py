@@ -36,6 +36,13 @@ class Translator:
     language: Language
     _texts: _Catalogue
 
+    def placeholders(self, key: str) -> frozenset[str]:
+        """The names a text expects."""
+        text = self._texts.get(key)
+        if text is None:
+            raise TranslationError(f"unknown text: {key}")
+        return text.placeholders
+
     def text(self, key: str, /, **values: str | int) -> str:
         """Return a text with its placeholders filled. Values are never read as templates."""
         text = self._texts.get(key)

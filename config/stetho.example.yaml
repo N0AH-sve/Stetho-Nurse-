@@ -30,7 +30,13 @@ hermes:
     default: "Main"
 
 modules:
-  gateway: { enabled: true }
+  gateway:
+    enabled: true
+    # Thresholds can be changed here. These are the default values.
+    # overrides:
+    #   late_after_minutes: 2
+    #   down_after_minutes: 5
+    #   missing_critical_after_minutes: 5
   platforms: { enabled: true }
   scheduler: { enabled: true }
   cron_jobs: { enabled: true }

@@ -1,6 +1,7 @@
 # Gateway
 
-> Status: the reader is implemented. Rules, texts and the sensor are to be written.
+> Status: the reader, the rules, the texts and the sensor are implemented. Nothing runs the
+> sensor yet.
 
 ## Purpose
 
@@ -21,7 +22,7 @@ lack of memory is suspected.
 
 ## Reader
 
-`stetho/modules/gateway/reader.py` turns the files into neutral data. Nothing calls it yet.
+`stetho/modules/gateway/reader.py` turns the files into neutral data.
 
 - **Adapter.** `adapters/hermes-0.21.yaml` lists the required and known fields, the states, the
   intents and the known exit reasons. There is one adapter, so no version is chosen yet. The
@@ -71,32 +72,96 @@ The main profile (`default`) is at the root of the data directory, the others in
 - **Limit.** With `auto`, the removal of the whole state file of a secondary profile cannot be
   noticed after a restart of STETHO.
 
+## Rules
+
+[`rules.yaml`](../../stetho/modules/gateway/rules.yaml) holds the thresholds, the rules, their
+status, text and actions. The first rule that matches wins. `rules.py` applies them. The age is
+the time since `updated_at`; "more than" is strict.
+
+| Order | Case | Status | Action offered |
+| --- | --- | --- | --- |
+| 1 | `stopped` with `desired_state: stopped` | `critical` | None: the stop is deliberate |
+| 2 | `stopped` | `critical` | `RESTART_GATEWAY` |
+| 3 | `startup_failed` | `critical` | `RESTART_GATEWAY` |
+| 4 | `degraded` with a watchdog reason: the process is dead | `critical` | `RESTART_GATEWAY` |
+| 5 | Date written by a command, more than 5 minutes old | `critical` | `RESTART_CONTAINER` |
+| 6 | Date written by a command, more than 2 minutes old | `warn` | None |
+| 7 | Other date written by a command | `unknown` | None |
+| 8 | Date more than 5 minutes old | `critical` | `RESTART_CONTAINER` |
+| 9 | Date more than 2 minutes old | `warn` | None |
+| 10 | No usable date | `unknown` | None |
+| 11 | `degraded` | `warn` | `RESTART_GATEWAY` |
+| 12 | `starting` or `draining` | `warn` | None |
+| 13 | `running` | `ok` | None |
+| 14 | Unknown state | `warn` | None |
+
+Rules 1 to 4 ignore the age, so that a stopped gateway is not announced as not answering.
+
+Without a usable state file:
+
+| Case | Status | Action offered |
+| --- | --- | --- |
+| State file missing for 5 minutes or less | `unknown` | None |
+| State file missing for more than 5 minutes | `critical` | `RESTART_CONTAINER` |
+| State file unreadable, invalid or without a required field | `unknown` | None |
+
+Two protections are in the code, so that no change of the rules can lift them:
+
+- **Intent.** No action is offered, in any state, when `desired_state` is `stopped` or holds a
+  value STETHO does not know. When it is absent, actions stay offered.
+- **Unknown value.** With an `unexpected_value` anomaly, the status is at least `warn`.
+
+`RESTART_GATEWAY` may do nothing on a stopped gateway: to be settled with NURSE.
+
+### Thresholds
+
+An installation changes them in `stetho.yaml`, under `modules.gateway.overrides`:
+`late_after_minutes` (2), `down_after_minutes` (5) and `missing_critical_after_minutes` (5).
+They are whole numbers of minutes greater than 0, and the first must be lower than the second.
+The configuration checks the names and values; `load_rules` checks the order and raises
+`RulesError` when the sensor is created.
+
+## Sensor
+
+`sensor.py` reads every gateway, applies the rules and returns one
+[result](probe.md#result-format) with the anomalies. Its group is "Availability".
+
+- **One gateway.** The card holds its status, sentence, details and actions.
+- **Several.** One item per gateway, named after `hermes.profile_labels` or the profile. The
+  card takes the worst status, and the sentence of the first gateway that has it, with its name.
+- **Actions** are offered for the main profile only: an action names no profile, so NURSE would
+  act on the main one.
+- **Unchecked.** If some profiles cannot be listed, or if there is no gateway to check, the card
+  is at least `unknown`.
+- **Details.** Last sign of life, stop reason, active agents, Hermes version and last unclean
+  stop. The date of the latter is in the time zone of the installation. A reason that is not
+  confirmed is not shown: the page points to the Hermes logs.
+
+### Memory
+
+The sensor keeps two things **until STETHO restarts**:
+
+- since when a state file is missing: after a restart, the 5 minutes start again;
+- with `profiles: auto`, the profiles already seen. A profile whose file disappears stays
+  expected, unless the main gateway now serves it. A profile removed on purpose is therefore
+  reported until the restart.
+
+**Limit.** A command writes the date again. Repeated commands on a dead gateway can therefore
+postpone `critical`.
+
 ## Tests
 
-`tests/stetho/test_gateway_reader.py` uses the made-up files in
-`tests/fixtures/hermes-0.21/`, with their reference time.
-
-## Planned content
-
-- Rules and thresholds
-- Texts, sensor result and suggested actions
+`tests/stetho/test_gateway_reader.py` and `test_gateway_sensor.py` use the made-up files in
+`tests/fixtures/hermes-0.21/`, with their reference time; the second goes from the files to the
+result. `test_gateway_rules.py` covers each rule, the thresholds and the protections.
 
 ## Decisions
 
 - **Missing state file.** `unknown`, then `critical` after 5 minutes.
-
-The following rules are decided and not implemented yet. They replace those of the initial
-specification where they differ.
-
-- **Order.** `stopped` and `startup_failed` are checked before the age of the date, so that a
-  stopped gateway is not announced as not answering. They are `critical`. So is `degraded` with
-  a watchdog reason, because the process is dead. `RESTART_GATEWAY` is offered for these three.
-- **Deliberate stop.** `stopped` with `desired_state: stopped` stays `critical`, says that the
-  stop is deliberate and offers **no action**. Elsewhere, `RESTART_GATEWAY` is offered as
-  planned, although it may do nothing on a stopped gateway: to be settled with NURSE.
-- **Date written by a command.** Outside the stopped cases above: `unknown` up to 2 minutes,
-  then `warn`, then `critical` after 5 minutes, as long as no real sign of life comes back.
-- **`starting` and `draining`** with a recent sign of life are `warn`.
-- **Exit reason.** Only the confirmed reasons are translated. For any other, the page says that
-  the reason is not shown and points to the Hermes logs.
+- **Order.** Stopped cases are checked before the age, unlike in the initial specification.
+- **Deliberate stop.** It stays `critical`, since Hermes does not work, and no repair is offered.
+- **Date written by a command.** It is not a sign of life.
+- **`starting` and `draining`.** `warn`, although a long normal start or stop can then lead to an
+  alert.
+- **Exit reason.** Only confirmed reasons are translated, since the text could hold a secret.
 - **Profiles.** One sensor, with one item per gateway when there are several.
