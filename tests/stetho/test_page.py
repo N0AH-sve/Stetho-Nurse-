@@ -270,3 +270,49 @@ def test_old_reading_time_grows_with_the_clock() -> None:
 
     assert built.checked is not None
     assert built.checked.relative == "il y a 2 h"
+
+
+def skipped(identifier: str) -> Item:
+    return Item(id=identifier, label=identifier, status=Status.UNKNOWN, summary="s", assessed=False)
+
+
+def test_what_was_not_assessed_is_not_a_problem_but_stays_visible() -> None:
+    sensors = [
+        FakeSensor("down", result("down", Status.CRITICAL)),
+        FakeSensor("whole", result("whole", Status.UNKNOWN, assessed=False)),
+        FakeSensor(
+            "part",
+            result("part", Status.UNKNOWN, assessed=False, items=(skipped("x"),)),
+        ),
+    ]
+
+    assert problems(*sensors) == [("critical", "Title down")]
+    page = page_of(published(run_probe(config(), sensors)))
+    assert page.count(">Not assessed</span>") == 3
+    assert "Title whole" in page
+
+
+def test_assessed_trouble_of_a_card_is_still_listed() -> None:
+    mixed = result("a", Status.UNKNOWN, items=(skipped("x"),))
+
+    assert problems(FakeSensor("a", mixed)) == [("unknown", "Title a")]
+
+
+def test_only_unassessed_cards_never_make_the_page_healthy() -> None:
+    api = published(
+        run_probe(config(), [FakeSensor("a", result("a", Status.UNKNOWN, assessed=False))])
+    )
+
+    assert 'class="banner status-unknown"' in page_of(api)
+
+
+def test_old_data_is_a_problem_even_if_it_was_not_assessed() -> None:
+    api = published(
+        run_probe(config(), [FakeSensor("a", result("a", Status.UNKNOWN, assessed=False))])
+    )
+    api.time.seconds += 1000
+
+    page = page_of(api)
+
+    assert "Not assessed" not in page
+    assert 'id="problems"' in page

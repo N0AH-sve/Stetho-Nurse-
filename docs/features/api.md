@@ -36,6 +36,8 @@ protections.
 - **Closed objects.** A response, and a file exchanged with NURSE, holds the described fields
   only. A field with nothing to say is `null` or an empty list, not left out. Only a request may
   leave a field out.
+- **Not assessed.** A sensor and its items have `assessed`, see the
+  [result format](probe.md#result-format). The field was added before any release.
 - **Advice.** A sensor and its items have an `advice`: what to do, or `null`. It is part of the
   [result format](probe.md#result-format).
 - **Report.** `summary` is the sentence of the banner. A report is **stale** when no new one has

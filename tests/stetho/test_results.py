@@ -174,3 +174,42 @@ def test_error_never_quotes_a_value() -> None:
         with pytest.raises(ValueError, match=r".+") as caught:
             sensor(**changes)
         assert marker not in str(caught.value)
+
+
+def unchecked(**changes: Any) -> Item:
+    return item(**({"status": Status.UNKNOWN, "assessed": False} | changes))
+
+
+def test_something_not_assessed_is_unknown_and_assessed_by_default() -> None:
+    assert (sensor().assessed, item().assessed) == (True, True)
+    assert sensor(status=Status.UNKNOWN, assessed=False, items=(unchecked(), item(id="b")))
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"status": Status.OK},
+        {"status": Status.WARN},
+        {"status": Status.INFO},
+        {"advice": "Look"},
+        {"actions": ("RERUN_JOB",)},
+    ],
+)
+def test_not_assessed_cannot_say_or_offer_anything_else(changes: dict[str, Any]) -> None:
+    with pytest.raises(ValueError, match="not assessed is unknown"):
+        unchecked(**changes)
+    with pytest.raises(ValueError, match="not assessed is unknown"):
+        sensor(**({"status": Status.UNKNOWN, "assessed": False} | changes))
+
+
+def test_unassessed_sensor_cannot_hide_an_assessed_problem() -> None:
+    found = item(id="b", status=Status.UNKNOWN)
+
+    with pytest.raises(ValueError, match="cannot hold an assessed problem"):
+        sensor(status=Status.UNKNOWN, assessed=False, items=(found,))
+
+
+@pytest.mark.parametrize("status", [Status.OK, Status.INFO])
+def test_card_with_an_unassessed_item_never_looks_healthy(status: Status) -> None:
+    with pytest.raises(ValueError, match="less severe than its items"):
+        sensor(status=status, items=(unchecked(),))

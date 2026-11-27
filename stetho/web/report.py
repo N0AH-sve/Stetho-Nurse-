@@ -52,7 +52,13 @@ class ReportStore:
 
 def _outdated_item(item: Item, summary: str) -> Item:
     return replace(
-        item, status=Status.UNKNOWN, summary=summary, advice=None, details=(), actions=()
+        item,
+        status=Status.UNKNOWN,
+        summary=summary,
+        advice=None,
+        details=(),
+        actions=(),
+        assessed=True,  # old data is a problem, whatever it said
     )
 
 
@@ -64,6 +70,7 @@ def _outdated(sensor: SensorResult, summary: str) -> SensorResult:
         advice=None,
         details=(),
         actions=(),
+        assessed=True,
         items=tuple(_outdated_item(item, summary) for item in sensor.items),
     )
 
@@ -127,6 +134,7 @@ def _item_json(item: Item) -> Json:
         "status": item.status.value,
         "summary": item.summary,
         "advice": item.advice,
+        "assessed": item.assessed,
         "details": _details(item.details),
         "actions": list(item.actions),
     }
@@ -140,6 +148,7 @@ def sensor_json(sensor: SensorResult, *, stale: bool) -> Json:
         "status": sensor.status.value,
         "summary": sensor.summary,
         "advice": sensor.advice,
+        "assessed": sensor.assessed,
         "checked_at": _moment(sensor.checked_at),
         "stale": stale,
         "details": _details(sensor.details),

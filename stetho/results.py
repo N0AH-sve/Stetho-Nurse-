@@ -46,6 +46,13 @@ def _require_text(value: str, name: str) -> None:
         raise ValueError(f"{name} must not be empty")
 
 
+def _check_not_assessed(
+    assessed: bool, status: Status, advice: str | None, actions: tuple[str, ...]
+) -> None:
+    if not assessed and (status is not Status.UNKNOWN or advice is not None or actions):
+        raise ValueError("what was not assessed is unknown, without advice or action")
+
+
 def _check_advice(advice: str | None) -> None:
     if advice is not None:
         _require_text(advice, "advice")
@@ -86,6 +93,8 @@ class Item:
     advice: str | None = None  # what to do, if there is something to do
     details: tuple[Detail, ...] = ()
     actions: tuple[str, ...] = ()
+    # False: not checked on purpose, because something it depends on is down. Not a problem.
+    assessed: bool = True
 
     def __post_init__(self) -> None:
         _require_text(self.id, "id")
@@ -93,6 +102,7 @@ class Item:
         _require_text(self.summary, "summary")
         _check_advice(self.advice)
         _check_actions(self.actions)
+        _check_not_assessed(self.assessed, self.status, self.advice, self.actions)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -110,6 +120,8 @@ class SensorResult:
     items: tuple[Item, ...] = ()
     actions: tuple[str, ...] = ()
     anomalies: tuple[AnomalyCode, ...] = ()  # why the sensor may not be able to tell
+    # False: nothing that was checked explains its status.
+    assessed: bool = True
 
     def __post_init__(self) -> None:
         if not SENSOR_ID.fullmatch(self.id):
@@ -125,6 +137,11 @@ class SensorResult:
             raise ValueError("repeated anomaly code")
         if len({item.id for item in self.items}) != len(self.items):
             raise ValueError("repeated item id")
+        _check_not_assessed(self.assessed, self.status, self.advice, self.actions)
+        if not self.assessed and any(
+            item.assessed and item.status not in (Status.OK, Status.INFO) for item in self.items
+        ):
+            raise ValueError("a sensor that was not assessed cannot hold an assessed problem")
         self._check_status_covers_items()
 
     def _check_status_covers_items(self) -> None:

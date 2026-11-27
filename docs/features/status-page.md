@@ -21,6 +21,8 @@ The page is at the root address of STETHO.
 - **Problems.** Failing items are listed instead of the card that sums them up. A card that is
   more severe than its items is listed too. A column title sorts the list; a second click
   reverses it.
+- **Not assessed.** What was [not assessed](probe.md#result-format) is not listed among the
+  problems. Its pill is grey and says "Not assessed".
 - **Colours.** Banner: green for `ok`, orange for `warn` and `unknown`, red for `critical`. A
   card pill is grey for `unknown` and `info`. A status is always written in words too.
 - **Times.** The last reading and the anomalies show how long ago, with the exact date in the

@@ -46,7 +46,7 @@
 <section class="cards">
 {% for sensor in page.sensors %}
 <article class="card">
-<h2><span class="pill status-{{ sensor.status }}">{{ t("status." ~ sensor.status) }}</span> {{ sensor.title }}</h2>
+<h2><span class="pill status-{{ sensor.status }}">{{ t("status." ~ sensor.status if sensor.assessed else "page.not_assessed") }}</span> {{ sensor.title }}</h2>
 <p class="group">{{ sensor.group }}</p>
 <p>{{ sensor.summary }}</p>
 {% if sensor.advice %}<p class="advice"><strong>{{ t("page.column.advice") }}</strong> {{ sensor.advice }}</p>{% endif %}
@@ -58,7 +58,7 @@
 {% endif %}
 {% for item in sensor["items"] %}
 <div class="item">
-<h3><span class="pill status-{{ item.status }}">{{ t("status." ~ item.status) }}</span> {{ item.label }}</h3>
+<h3><span class="pill status-{{ item.status }}">{{ t("status." ~ item.status if item.assessed else "page.not_assessed") }}</span> {{ item.label }}</h3>
 <p>{{ item.summary }}</p>
 {% if item.advice %}<p class="advice"><strong>{{ t("page.column.advice") }}</strong> {{ item.advice }}</p>{% endif %}
 {% if item.details %}<dl>{% for detail in item.details %}<dt>{{ detail.label }}</dt><dd>{{ detail.value }}</dd>{% endfor %}</dl>{% endif %}
