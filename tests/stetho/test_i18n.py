@@ -4,6 +4,7 @@ import pytest
 
 from stetho.config import Language
 from stetho.i18n import TRANSLATIONS_DIR, TranslationError, load_translator
+from stetho.results import Status
 
 ENGLISH = 'greeting:\n  named: "Hello {name}, {count} left {{literally}}"\n  plain: "Hello"\n'
 
@@ -41,8 +42,8 @@ def test_shipped_directory_holds_one_file_per_language() -> None:
 
 
 @pytest.mark.parametrize("language", list(Language))
-@pytest.mark.parametrize("status", ["ok", "warn", "critical", "info", "unknown"])
-def test_every_status_has_a_name(language: Language, status: str) -> None:
+@pytest.mark.parametrize("status", list(Status))
+def test_every_status_has_a_name(language: Language, status: Status) -> None:
     assert load_translator(language).text(f"status.{status}")
 
 
