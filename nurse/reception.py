@@ -66,7 +66,7 @@ HermesCheck = Callable[[Action, str | None, datetime], str | None]
 
 
 def refuse_unchecked(_action: Action, _target: str | None, _now: datetime) -> str | None:
-    """Until NURSE reads Hermes, nothing can be checked there."""
+    """Without a reader of Hermes, nothing can be checked there."""
     return "state_unreadable"
 
 

@@ -1,7 +1,7 @@
 # Corrective actions (NURSE)
 
 > Status: the settings, the catalogue and the reception of [requests](#requests) are
-> implemented. Hermes is not read and no command is run.
+> implemented, as well as the [checks in Hermes](#checks-in-hermes). No command is run.
 
 ## Purpose
 
@@ -99,8 +99,7 @@ seen.
 ## Requests
 
 `python -m nurse --config <file>` checks the requests. **It runs no action yet:** a request
-that passes every check is refused with `execution_disabled`. NURSE does not read Hermes yet
-either, so a request that reaches that check is refused with `state_unreadable`.
+that passes every check is refused with `execution_disabled`.
 
 The prescription folder is written by STETHO, the exposed service: everything in it is hostile.
 It is read every second, 20 files at most each time. Only names `<rx_id>.json` are considered;
@@ -125,13 +124,46 @@ The first check that fails gives the `refusal_reason`.
 | The action is in the catalogue | `unknown_action` |
 | The request is not automatic: automatic actions come after the alerts | `auto_disabled` |
 | A target only when the action has one, within [both limits](#catalogue) | `invalid_target` |
-| Hermes allows it. **Not read yet** | `state_unreadable` |
+| [Hermes allows it](#checks-in-hermes) | `state_unreadable`, `target_not_found` or `not_relevant` |
 | At least 120 s since the last restart, of either kind and any origin | `too_soon` |
 | Under the hourly limits of the action and in total | `rate_limited` |
 | An action may be run. **Not yet** | `execution_disabled` |
 
 **Limits** count the actions that were started, whatever their result, over the last 60
 minutes. A refused request does not count. Nothing is started yet, so only tests reach them.
+
+### Checks in Hermes
+
+`nurse/hermes.py` reads the main profile and the default Kanban board, without selecting any
+content. It never asks to write. What cannot be read or understood gives `state_unreadable`.
+
+| Action verified by | Allowed when | Otherwise |
+| --- | --- | --- |
+| `gateway_restarted` | `desired_state` in `gateway_state.json` is `running` | `not_relevant` if `stopped`; `state_unreadable` if absent or unknown. This is stricter than the buttons of STETHO |
+| `job_paused` | The job of `cron/jobs.json` is enabled | `not_relevant`, or `target_not_found` |
+| `job_ran` | The job is enabled, has no `run_claim` or `fire_claim`, and no `claimed` or `running` row in `cron/executions.db` | `not_relevant`, or `target_not_found` |
+| `task_reclaimed` | The default board is active, the task is running, and its current attempt gave no sign of life for more than 15 minutes or passed its maximum duration | `not_relevant`, or `target_not_found` |
+
+- Only the identifier is compared: the name of a job is never a target.
+- Each action reads what it depends on: the gateway state is not read for a job or a task.
+- The age and duration of a task are measured on its **current attempt**, so that the start or
+  the heartbeat of an earlier one cannot make a new attempt look stuck.
+- No link below the data folder is followed, side files of a database included, and a broken link
+  is not an absence. A JSON file is limited to 4 MiB and a query to 2 s.
+- Without `kanban/current`, the active board is the default one.
+- A database with a `-journal` file is refused: it may hold changes that were never committed.
+  **Limit:** in a journal mode that keeps this file, the actions that read it are always refused.
+- A database without `-wal` or `-shm` is opened as `immutable`, and the reading is dropped if
+  the file changes meanwhile; otherwise it is opened with `mode=ro`.
+
+**To settle before deployment:** with `mode=ro` on a folder it may write, SQLite can create or
+change the `-shm` and `-wal` files. Only a read-only mount of the data, not yet tried, would
+prevent it.
+
+**Limits.** Nothing was tried on a real installation. The environment variables of Hermes that
+move the boards are not seen. Hermes may change
+between the check and the action, the active board included. A claim or an execution left
+unfinished after a crash blocks a rerun until Hermes clears it.
 
 ### State, results and journal
 
@@ -162,16 +194,6 @@ leaves the requests waiting.
 ## Decided, not implemented yet
 
 Decided on 2026-11-27.
-
-### Reading Hermes
-
-- **Nothing unverified runs.** NURSE refuses when it cannot read the target or the state of the
-  gateway, and refuses a restart when the intent is `stopped`, absent or unknown. For an absent
-  intent, this is stricter than the buttons of STETHO.
-- **Main profile and default board only.** A Kanban action is refused when another board is
-  active. **Limit:** the board can still change between the check and the action.
-- **Relevance.** A rerun needs an enabled job that is not running. Reclaiming a task needs a
-  running task with no sign of life for 15 minutes, or past its maximum duration.
 
 ### Execution
 
