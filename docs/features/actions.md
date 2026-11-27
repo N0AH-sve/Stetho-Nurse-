@@ -197,6 +197,10 @@ leaves the requests waiting.
   actions is synced to disk.
 - A request that reuses the identifier of a pending action, or of one of the last 80, is a
   `duplicate` and never replaces its result.
+- A request that was only being refused when NURSE stopped is answered `duplicate`: nothing was
+  run.
+- Once the interrupted actions are answered, a public log that cannot be written does not stop
+  NURSE: the next request writes it again.
 
 **Not settled, before any action runs:**
 
@@ -205,8 +209,6 @@ leaves the requests waiting.
   recovery replaces.
 - **Older actions.** Beyond the last 80, an action is not known any more: its result counts in the
   limit of 1000, and its identifier can be used again.
-- A request that was only being refused when NURSE stopped is answered `duplicate`: nothing was
-  run.
 
 No action is run yet: only tests record one.
 

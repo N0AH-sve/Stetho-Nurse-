@@ -172,6 +172,12 @@ class Reception:
         directories = self._settings.log_dir, self._settings.results_dir
         for rx_id in recover_actions(*directories, state, _timestamp(self._clock())):
             _LOG.warning("action %s was interrupted: its effect is not verified", rx_id)
+        # An interruption may have come just before the public log. Nothing rests on it: a
+        # failure here does not stop NURSE, and the next request writes it again.
+        try:
+            write_log(self._settings.results_dir, state.log())
+        except OSError as error:
+            _LOG.error("the public log cannot be written: %s", type(error).__name__)
 
     def run_once(self) -> int:
         """Handles a few waiting requests and returns their number."""

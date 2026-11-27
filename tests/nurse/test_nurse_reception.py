@@ -341,6 +341,10 @@ def with_state(**changes: object) -> bytes:
         with_state(recent=[{"prescription": None, "result": answer("refused", rx_id="../x")}]),
         with_state(pending={"a": {"prescription": 1, "started_at": "x"}}),
         with_state(pending={"a": {"prescription": {"rx_id": "b"}, "started_at": "x"}}),
+        with_state().replace(b'"recent": []', b'"recent": [1e999]'),
+        with_state(
+            pending={"a": {"prescription": {"rx_id": "a", "n": 12345.5}, "started_at": "x"}}
+        ).replace(b"12345.5", b"1e999"),
         with_state(
             pending={"a": {"prescription": {"rx_id": "a", "n": float("nan")}, "started_at": "x"}}
         ),
@@ -1000,9 +1004,13 @@ def test_action_survives_a_failure_at_each_write(
         raise PermissionError
 
     monkeypatch.setattr(records, step, broken)
-    for _ in range(3):  # every restart fails the same way
-        with pytest.raises(PermissionError):
+    # Once the action is saved, only the public log is left: it is no longer pending.
+    for number in range(3):  # every restart fails the same way
+        if step == "write_log" and number:
             reception(tmp_path).recover()
+        else:
+            with pytest.raises(PermissionError):
+                reception(tmp_path).recover()
     monkeypatch.undo()
 
     reception(tmp_path).recover()
@@ -1015,27 +1023,64 @@ def test_action_survives_a_failure_at_each_write(
     assert [json.loads(line) for line in lines] == state.actions
 
 
-def test_actions_journal_is_synced_before_the_action_stops_being_pending(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    interrupted(tmp_path)
-    order: list[str] = []
-    append, save = records.append_journal, records.save_state
+def synced_files(monkeypatch: pytest.MonkeyPatch, order: list[str]) -> None:
+    """Records the name of every file or folder that is synced, and each saved state."""
+    fsync, save = os.fsync, records.save_state
 
-    def appended(*args: Any, **kwargs: Any) -> None:
-        order.append(f"journal durable={kwargs.get('durable')}")
-        append(*args, **kwargs)
+    def synced(descriptor: int) -> None:
+        order.append(Path(f"/proc/self/fd/{descriptor}").readlink().name)
+        fsync(descriptor)
 
     def saved(log_dir: Path, state: State) -> None:
-        order.append("state")
+        order.append("save state")
         save(log_dir, state)
 
-    monkeypatch.setattr(records, "append_journal", appended)
+    monkeypatch.setattr(os, "fsync", synced)
     monkeypatch.setattr(records, "save_state", saved)
+
+
+@pytest.mark.parametrize("written_before", [False, True])
+def test_actions_journal_is_synced_before_the_action_stops_being_pending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, written_before: bool
+) -> None:
+    interrupted(tmp_path)
+    if written_before:  # the line is there, but its sync had failed
+        kept = answer("done")
+        (tmp_path / "results" / "rx-1.json").write_text(json.dumps(kept))
+        line = {"prescription": request(), "result": kept}
+        records.append_journal(tmp_path / "log", line, records.ACTIONS_NAME)
+    order: list[str] = []
+    synced_files(monkeypatch, order)
 
     reception(tmp_path).recover()
 
-    assert order == ["journal durable=True", "state"]
+    before_state = order[: order.index("save state")]
+    journal_at = before_state.index("actions.jsonl")
+    assert before_state[journal_at + 1] == "log"
+    assert len((tmp_path / "log" / "actions.jsonl").read_text().splitlines()) == 1
+
+
+def test_another_entry_with_the_same_identifier_is_journaled(tmp_path: Path) -> None:
+    reception(tmp_path)
+    earlier = {"prescription": request(), "result": answer("failed")}
+    records.append_journal(tmp_path / "log", earlier, records.ACTIONS_NAME)
+    state = State()
+    records.start_action(tmp_path / "log", state, request(), LAUNCH, STARTED)
+
+    records.finish_action(tmp_path / "log", tmp_path / "results", state, answer("done"))
+
+    assert len((tmp_path / "log" / "actions.jsonl").read_text().splitlines()) == 2
+
+
+def test_unwritable_public_log_does_not_stop_nurse_with_nothing_pending(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    service = reception(tmp_path)
+    (tmp_path / "results" / "_log.json").mkdir()
+
+    service.recover()
+
+    assert "the public log cannot be written: IsADirectoryError" in caplog.text
 
 
 def test_a_cut_line_does_not_swallow_the_next_one(tmp_path: Path) -> None:

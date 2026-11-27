@@ -6,6 +6,7 @@ them. The results directory is read by STETHO.
 
 import fcntl
 import json
+import math
 import os
 import re
 import tempfile
@@ -144,6 +145,13 @@ def _no_constant(_value: str) -> object:
     raise ValueError("not a JSON number")
 
 
+def _finite(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):  # too large a number would not be written back
+        raise ValueError("not a JSON number")
+    return number
+
+
 def _parse_state(document: object) -> State:
     """Anything that is not exactly what NURSE writes raises `StateError`."""
     names = ("handled", "launches", "recent", "actions", "pending")
@@ -187,7 +195,7 @@ def load_state(log_dir: Path) -> State:
     if len(content) > _MAX_STATE_BYTES:
         raise StateError
     try:
-        document = json.loads(content, parse_constant=_no_constant)
+        document = json.loads(content, parse_constant=_no_constant, parse_float=_finite)
     except (ValueError, RecursionError):
         raise StateError from None
     return _parse_state(document)
@@ -271,15 +279,21 @@ def append_journal(
         if end and os.pread(stream.fileno(), 1, end - 1) != b"\n":
             stream.write(b"\n")
         stream.write(line.encode("ascii"))
-        stream.flush()
-        if durable:
-            os.fsync(stream.fileno())
     if durable:
-        _sync_folder(log_dir)
+        _sync_journal(log_dir, name)
 
 
-def _is_last_line(log_dir: Path, name: str, rx_id: str) -> bool:
-    """Whether the journal already ends with the answer to this identifier."""
+def _sync_journal(log_dir: Path, name: str) -> None:
+    descriptor = os.open(log_dir / name, os.O_RDONLY | os.O_CLOEXEC)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    _sync_folder(log_dir)
+
+
+def _is_last_line(log_dir: Path, name: str, entry: Entry) -> bool:
+    """Whether the journal already ends with this very entry."""
     try:
         with (log_dir / name).open("rb") as stream:
             end = stream.seek(0, os.SEEK_END)
@@ -288,8 +302,8 @@ def _is_last_line(log_dir: Path, name: str, rx_id: str) -> bool:
     except FileNotFoundError:
         return False
     try:
-        return bool(lines) and bool(json.loads(lines[-1])["result"]["rx_id"] == rx_id)
-    except (ValueError, RecursionError, KeyError, TypeError):
+        return bool(lines) and bool(json.loads(lines[-1]) == entry)
+    except (ValueError, RecursionError):
         return False
 
 
@@ -374,7 +388,9 @@ def finish_action(log_dir: Path, results_dir: Path, state: State, result: Entry)
     entry = {"prescription": state.pending[rx_id]["prescription"], "result": result}
     write_result(results_dir, result)
     # Not twice when a later step failed and NURSE ends the same action again.
-    if not _is_last_line(log_dir, ACTIONS_NAME, rx_id):
+    if _is_last_line(log_dir, ACTIONS_NAME, entry):
+        _sync_journal(log_dir, ACTIONS_NAME)  # the sync may be what had failed
+    else:
         append_journal(log_dir, entry, ACTIONS_NAME, durable=True)
     saved = state.copy()
     del saved.pending[rx_id]
@@ -418,6 +434,4 @@ def recover_actions(log_dir: Path, results_dir: Path, state: State, now: str) ->
             "verified": False,
         }
         finish_action(log_dir, results_dir, state, result)
-    # The interruption may also have come just before the public log.
-    write_log(results_dir, state.log())
     return recovered
