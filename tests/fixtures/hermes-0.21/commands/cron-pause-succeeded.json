@@ -1,0 +1,13 @@
+{
+  "argv": [
+    "hermes",
+    "cron",
+    "pause",
+    "aaaaaaaaaaaa"
+  ],
+  "exit_code": 0,
+  "stdout": [
+    "Paused job: Sample report (aaaaaaaaaaaa)"
+  ],
+  "stderr": []
+}

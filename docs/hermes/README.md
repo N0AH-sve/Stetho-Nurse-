@@ -30,19 +30,26 @@ A real installation may differ: settings, environment, older files or a modified
 | [Kanban](kanban.md) | Boards, tasks and attempts |
 | [Sessions](sessions.md) | Session database |
 | [File access](permissions.md) | File modes and read-only access to SQLite |
+| [Commands](commands.md) | Commands run by NURSE, exit codes, effects and Docker calls |
+| [Coverage](coverage.md) | Which condition has a repair, and its limits |
 
 Made-up examples are in [`tests/fixtures/hermes-0.21/`](../../tests/fixtures/hermes-0.21/).
 
 ## Blocking findings
 
-Both are detailed in [file access](permissions.md).
+The first two are detailed in [file access](permissions.md), the others in
+[commands](commands.md).
 
 1. Several files that must be monitored are readable by their owner only.
 2. A SQLite database in WAL mode that no process holds open cannot be opened with `mode=ro` from
    a read-only directory.
+3. `gateway restart` does not start a stopped gateway, and still exits with 0. It also makes
+   the state file look alive.
+4. `cron run` runs the whole job inside the command, and exits with 0 when the job fails or is
+   not run.
 
 ## Not covered yet
 
-- Exit codes and output of the commands that NURSE will run.
+- Behaviour of the commands in a running container: they were only read.
 - Real owners, modes and mounts of an installation.
 - Files only needed by the known weaknesses checks, such as skill backups and output folders.

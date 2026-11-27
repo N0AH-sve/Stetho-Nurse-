@@ -47,3 +47,18 @@ catalogue contains five actions.
 ## Open points
 
 - Default value of the total hourly cap.
+
+Raised by [reading the Hermes commands](../hermes/commands.md); no decision yet:
+
+- **Stopped gateway.** `RESTART_GATEWAY` may do nothing on a stopped gateway. It must also not
+  override a deliberate stop.
+- **Verification.** Which evidence proves that each action worked.
+- **`RERUN_JOB`.** The command lasts as long as the job and exits with 0 on failure. Its timeout
+  and way of running must be reviewed.
+- **Timeouts.** Docker offers no call to stop a running command.
+- **Kanban.** `UNBLOCK_KANBAN_TASK` reclaims a running task, resets its retries and needs the
+  board to be selected.
+- **Proxy.** Path rules cannot limit `exec` calls by container, and reading the container
+  description may expose secrets.
+- **Coverage.** Which [conditions without a repair or without a rule](../hermes/coverage.md)
+  need one.

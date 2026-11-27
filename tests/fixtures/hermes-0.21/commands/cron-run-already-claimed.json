@@ -1,0 +1,15 @@
+{
+  "argv": [
+    "hermes",
+    "cron",
+    "run",
+    "aaaaaaaaaaaa"
+  ],
+  "exit_code": 0,
+  "stdout": [
+    "Triggered job: Sample report (aaaaaaaaaaaa)",
+    "  Next run: 2026-01-15T13:00:00+00:00",
+    "  Job is already being fired by the scheduler; not run again."
+  ],
+  "stderr": []
+}

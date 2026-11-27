@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "hermes",
+    "cron",
+    "run",
+    "aaaaaaaaaaaa"
+  ],
+  "exit_code": 0,
+  "stdout": [
+    "Triggered job: Sample report (aaaaaaaaaaaa)",
+    "  Job is paused/disabled; resume it before running."
+  ],
+  "stderr": []
+}

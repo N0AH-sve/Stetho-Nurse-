@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "hermes",
+    "sessions",
+    "prune"
+  ],
+  "exit_code": 0,
+  "stdout": [
+    "Cancelled."
+  ],
+  "stderr": []
+}

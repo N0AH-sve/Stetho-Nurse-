@@ -18,9 +18,18 @@ Each folder mirrors a part of a Hermes home.
 | `degraded/` | Platform errors, unclean previous stop, failing scheduler, jobs, tasks and sessions |
 | `stopped/` | Clean stop |
 | `startup-failed/` | Startup failure |
-| `invalid/` | One case per sub-folder: broken, unknown, missing or implausible input |
+| `invalid/` | One case per sub-folder: broken, unknown, missing, implausible or misleading input |
+| `commands/` | Results of commands |
 
 `invalid/jobs-bare-list/` is a shape that Hermes accepts and repairs.
+`invalid/restart-written-by-cli/` looks healthy but proves nothing: the CLI wrote
+`updated_at`, see [commands](../../../docs/hermes/commands.md#the-cli-makes-the-state-file-look-alive).
+
+## Command results
+
+Each file of `commands/` gives `argv`, `exit_code`, `stdout` and `stderr` as lines. They are
+**rebuilt from the source code**, not captured: colours, extra warnings and exact spacing may
+differ. The text of the job lines before the verdict is illustrative.
 
 ## Databases
 
@@ -42,5 +51,5 @@ page, a log or an alert.
 
 ## Not covered
 
-File owners and modes, WAL side files, named profiles, additional Kanban boards and command
-outputs. Tests create the first four when they need them.
+File owners and modes, WAL side files, named profiles and additional Kanban boards. Tests
+create them when they need them.

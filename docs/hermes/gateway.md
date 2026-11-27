@@ -10,7 +10,7 @@ Compact JSON, replaced atomically. Source: `gateway/status.py`.
 | Field | Type | Notes |
 | --- | --- | --- |
 | `gateway_state` | string | See below |
-| `updated_at` | ISO 8601 string, UTC | Re-stamped every 60 s by the housekeeping thread |
+| `updated_at` | ISO 8601 string, UTC, or integer | Re-stamped every 60 s by the housekeeping thread. `gateway start`, `stop` and `restart` write epoch seconds, [which is not a heartbeat](commands.md#the-cli-makes-the-state-file-look-alive) |
 | `exit_reason` | string or null | |
 | `restart_requested` | boolean | |
 | `active_agents` | integer | |
@@ -24,7 +24,7 @@ Compact JSON, replaced atomically. Source: `gateway/status.py`.
 | `active_work` | list or null | Set while draining |
 | `served_profiles` | list | One gateway serving several profiles |
 | `multiplex_standalone_reason` | string or null | |
-| `desired_state` | string | Operator intent, written by other processes |
+| `desired_state` | string | Operator intent (`running` or `stopped`), written by the CLI and the container boot; may be absent |
 
 Hermes itself treats a snapshot as stale after 120 s.
 
