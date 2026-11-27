@@ -155,6 +155,7 @@ platforms:
     attention: "Esta plataforma requiere atención"
     old: "Estado antiguo, sin comprobar"
     partly_assessed: "Algunas plataformas no se han evaluado y hay un dato inesperado en las demás"
+    gateway_down: "No se pueden comprobar las plataformas: el gateway no funciona con normalidad"
     not_assessed: "No evaluada: el gateway no funciona con normalidad"
     unusable: "No se pueden comprobar las plataformas"
     none_current: "Ningún estado de plataforma procede del gateway en marcha"
@@ -167,6 +168,7 @@ platforms:
     wait: "Espera unos minutos. Si continúa, lee los registros de Hermes."
     check_version: "Comprueba la versión de Hermes: puede que STETHO necesite una actualización."
     check_attention: "Lee los registros de Hermes para ver qué necesita esta plataforma."
+    check_gateway: "Comprueba que el gateway de Hermes está en marcha y lee sus registros."
     check_data: "Comprueba la versión de Hermes y que STETHO puede leer sus datos."
   detail:
     error: "Error"

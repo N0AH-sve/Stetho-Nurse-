@@ -57,7 +57,8 @@ class PlatformsSensor:
         gateway_rules = load_gateway_rules(config.modules.gateway.overrides)
         self._late_after = gateway_rules.threshold("late_after_minutes")
         self._profiles = ProfileReader(config.hermes, MODULE, _served_by)
-        self._waiting_since: dict[tuple[str, str], datetime] = {}
+        # By profile and platform: first time seen waiting, and the gateway process then.
+        self._waiting_since: dict[tuple[str, str], tuple[datetime, tuple[object, object]]] = {}
 
     @property
     def title(self) -> str:
@@ -79,25 +80,22 @@ class PlatformsSensor:
         )
         readings = [reading for _, reading in found]
         several = len(readings) > 1
-        waiting: set[tuple[str, str]] = set()
         cards: list[_Card] = []
         anomalies: list[Anomaly] = list(global_anomalies)
         for reading in readings:
             if self._alive(reading.gateway, now):
-                cards.append(self._card(reading, now, several, waiting))
+                cards.append(self._card(reading, now, several))
+                if reading.complete:
+                    self._forget_removed(reading)
                 anomalies.extend(reading.anomalies)
-            elif not self._config.modules.gateway.enabled and (
-                reading.gateway is None or reading.gateway.heartbeat is None
-            ):
-                # No gateway card would say why the file cannot be used.
-                items = self._not_assessed(reading, several).items
-                cards.append(_Card(items, True, "unusable", "check_data"))
-                anomalies.extend((*reading.file_anomalies, *reading.anomalies))
             else:
-                cards.append(self._not_assessed(reading, several))
-        self._waiting_since = {
-            key: since for key, since in self._waiting_since.items() if key in waiting
-        }
+                self._forget_unidentified(reading.profile)
+                if not self._config.modules.gateway.enabled:
+                    # No gateway card says that something is wrong: this one must.
+                    cards.append(self._unexplained(reading, several))
+                    anomalies.extend((*reading.file_anomalies, *reading.anomalies))
+                else:
+                    cards.append(self._not_assessed(reading, several))
         return SensorOutcome(
             self._result(cards, global_anomalies, tuple(anomalies), now), tuple(anomalies)
         )
@@ -140,16 +138,32 @@ class PlatformsSensor:
         )
         return _Card(items, False)
 
-    def _card(
-        self,
-        reading: PlatformsReading,
-        now: datetime,
-        several: bool,
-        waiting: set[tuple[str, str]],
-    ) -> _Card:
-        items = tuple(
-            self._item(reading, entry, now, several, waiting) for entry in reading.entries
-        )
+    def _forget_removed(self, reading: PlatformsReading) -> None:
+        """A platform that a complete reading no longer holds waits no more."""
+        present = {entry.key for entry in reading.entries}
+        for profile, key in list(self._waiting_since):
+            if profile == reading.profile and key not in present:
+                del self._waiting_since[profile, key]
+
+    def _forget_unidentified(self, profile: str) -> None:
+        """Without both numbers of the process, a restart could go unseen while nothing is read."""
+        for key, (_, process) in list(self._waiting_since.items()):
+            if key[0] == profile and None in process:
+                del self._waiting_since[key]
+
+    def _unexplained(self, reading: PlatformsReading, several: bool) -> _Card:
+        usable = reading.gateway is not None and reading.gateway.heartbeat is not None
+        items = self._not_assessed(reading, several).items
+        if usable:
+            assert reading.gateway is not None  # noqa: S101 - for the type checker
+            stopped = reading.gateway.desired_state == "stopped"
+            return _Card(
+                items, True, "gateway_down", "deliberate_stop" if stopped else "check_gateway"
+            )
+        return _Card(items, True, "unusable", "check_data")
+
+    def _card(self, reading: PlatformsReading, now: datetime, several: bool) -> _Card:
+        items = tuple(self._item(reading, entry, now, several) for entry in reading.entries)
         if not reading.complete:
             return _Card(items, True, "unusable", "check_data")
         if reading.entries and not any(entry.current for entry in reading.entries):
@@ -162,20 +176,19 @@ class PlatformsSensor:
         entry: PlatformEntry,
         now: datetime,
         several: bool,
-        waiting: set[tuple[str, str]],
     ) -> Item:
         text = self._translator.text
         identifier = self._item_id(reading, entry)
         label = self._label(reading, entry, several)
+        key = (reading.profile, entry.key)
+        if not entry.current or not is_waiting(entry, self._rules):
+            self._waiting_since.pop(key, None)  # seen otherwise: a new wait starts anew
         if not entry.current:
             former = text("platforms.summary.old")
             return Item(id=identifier, label=label, status=Status.INFO, summary=former)
         since = now
         if is_waiting(entry, self._rules):
-            key = (reading.profile, entry.key)
-            waiting.add(key)
-            first_seen = self._waiting_since.setdefault(key, now)
-            since = entry.retrying_since or first_seen
+            since = self._start_of_wait(reading, entry, now)
         verdict = evaluate(entry, self._rules, now=now, since=since)
         summary_key = f"platforms.summary.{verdict.summary}"
         if "age" in self._translator.placeholders(summary_key):
@@ -198,6 +211,17 @@ class PlatformsSensor:
             details=details,
             actions=self._actions(reading, verdict.repair),
         )
+
+    def _start_of_wait(
+        self, reading: PlatformsReading, entry: PlatformEntry, now: datetime
+    ) -> datetime:
+        """Kept while the same gateway process runs, even across readings that skip it."""
+        key = (reading.profile, entry.key)
+        known = self._waiting_since.get(key)
+        first_seen = now if known is None or known[1] != reading.process else known[0]
+        self._waiting_since[key] = (first_seen, reading.process)
+        # The earliest: a date that Hermes moved forward would never become critical.
+        return min(first_seen, entry.retrying_since or first_seen)
 
     def _actions(self, reading: PlatformsReading, repair: str | None) -> tuple[str, ...]:
         gateway = reading.gateway
@@ -247,7 +271,9 @@ class PlatformsSensor:
             advice = worst.advice
         elif reason is not None:
             summary = text(f"platforms.summary.{reason.unknown_reason}")
-            advice = text(f"platforms.advice.{reason.advice}")
+            # The same words as the gateway card for a stop that was meant.
+            module = "gateway" if reason.advice == "deliberate_stop" else "platforms"
+            advice = text(f"{module}.advice.{reason.advice}")
         elif down and not unchecked and anomalies:
             summary = text("platforms.summary.partly_assessed")
             advice = text("platforms.advice.check_data")
