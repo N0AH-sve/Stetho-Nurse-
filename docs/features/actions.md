@@ -38,8 +38,8 @@ quotes a value.
 | `auto_actions` | True or false: the switch of all automatic actions |
 | `max_actions_per_hour` | 1 to 100, over all actions, whatever their origin |
 | `hermes.container` | A Docker name: it becomes part of a path of the Docker API |
-| `docker.proxy_url` | `http://host:port`, nothing else: no socket, credentials, path or query |
-| Folders and catalogue | Absolute paths without `..`. The data, prescription, result and log folders are separate, none inside another, and the catalogue is outside all of them |
+| `docker.proxy_url` | `http://host:port` with a port above 0, nothing else: no socket, credentials, path or query |
+| Folders and catalogue | Absolute paths without `..` or a leading `//`. The data, prescription, result and log folders are separate, none inside another. The catalogue is neither inside one of them nor above it |
 
 `log_dir` is **private** to NURSE: STETHO must neither read nor write it. **Limit:** the paths
 are compared as written; links and the real mounts are checked at deployment.
@@ -59,7 +59,7 @@ each field. It is read at startup only.
 | `target` | `pattern` and `must_exist_in` (`cron_job` or `kanban_task`) |
 | `verify` | `gateway_restarted`, `job_ran`, `job_paused` or `task_reclaimed`; it must match the target and the type |
 | `auto` | Only `RESTART_GATEWAY` may be automatic |
-| `rate_limit` | Optional: `auto_per_hour` (2) and `manual_per_hour` (5), from 0 to 100 |
+| `rate_limit` | Optional. If given, both `auto_per_hour` and `manual_per_hour` are required, from 0 to 100; without it, 2 and 5 |
 | `timeout_seconds`, `verify_timeout_seconds` | Required, 1 to 3600 |
 
 What must be true before running an action follows from `verify`: the gateway may be restarted,
@@ -69,6 +69,8 @@ the job is not running or is enabled, or the task is running.
 The checks of the catalogue prevent mistakes; they do not make a catalogue edited by an attacker
 safe, since a `hermes` command can do harm. Protect the file and review it like code. A target
 `pattern` comes from the administrator: NURSE will also apply its own limits to every target.
+A `user` is checked as written: another name for the identifier 0 in the container would not be
+seen.
 
 ## Decisions
 

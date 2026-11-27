@@ -121,6 +121,7 @@ def test_example_catalogue_holds_the_five_actions() -> None:
         ("docker.proxy_url", "http://docker-proxy:2375?x=1"),
         ("docker.proxy_url", "http://docker-proxy:999999"),
         ("docker.proxy_url", "http://[bad:2375"),
+        ("docker.proxy_url", "http://docker-proxy:0"),
         ("paths.log_dir", "log"),
         ("paths.results_dir", "/shared/prescriptions"),
         ("paths.log_dir", "/shared/results/private"),
@@ -129,10 +130,31 @@ def test_example_catalogue_holds_the_five_actions() -> None:
         ("paths.actions_file", "/shared/results/actions.toml"),
         ("paths.actions_file", "/shared/prescriptions/actions.toml"),
         ("paths.actions_file", "/log/actions.toml"),
+        ("paths.actions_file", "/shared"),
+        ("paths.actions_file", "/"),
     ],
 )
 def test_dangerous_or_unclear_setting_stops_nurse(tmp_path: Path, path: str, value: object) -> None:
-    assert settings_error(tmp_path, path, value)
+    message = settings_error(tmp_path, path, value)
+
+    # The overlap of folders is reported on `paths` as a whole.
+    assert message.startswith((f"{path}:", "paths: the folders", "paths.actions_file: must"))
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        ("hermes.data_dir", "//hermes"),
+        ("paths.prescriptions_dir", "//shared/prescriptions"),
+        ("paths.results_dir", "//shared/prescriptions"),
+        ("paths.log_dir", "//shared/results"),
+        ("paths.log_dir", "//shared/prescriptions/private"),
+        ("paths.actions_file", "//shared/prescriptions/actions.toml"),
+        ("paths.actions_file", "//shared/results/actions.toml"),
+    ],
+)
+def test_double_slash_cannot_hide_an_overlap(tmp_path: Path, path: str, value: str) -> None:
+    assert settings_error(tmp_path, path, value).startswith(f"{path}: expected an absolute path")
 
 
 @pytest.mark.parametrize(
@@ -216,36 +238,68 @@ def test_only_the_gateway_restart_may_be_automatic(tmp_path: Path, code: str) ->
 
 
 @pytest.mark.parametrize(
-    ("path", "value"),
+    ("path", "value", "reason"),
     [
-        ("RESTART_GATEWAY.user", None),
-        ("RESTART_GATEWAY.argv", None),
-        ("RESTART_CONTAINER.argv", ["hermes"]),
-        ("RESTART_CONTAINER.user", "hermes"),
-        ("RESTART_CONTAINER.verify", "job_ran"),
-        ("RESTART_GATEWAY.verify", "nothing"),
-        ("RESTART_GATEWAY.type", "shell"),
-        ("RESTART_GATEWAY.label.en", None),
-        ("RESTART_GATEWAY.label.de", "x"),
-        ("RESTART_GATEWAY.timeout_seconds", 0),
-        ("RESTART_GATEWAY.timeout_seconds", 3601),
-        ("RESTART_GATEWAY.verify_timeout_seconds", None),
-        ("RESTART_GATEWAY.rate_limit", {"auto_per_hour": 2}),
-        ("RESTART_GATEWAY.rate_limit", {"auto_per_hour": -1, "manual_per_hour": 5}),
-        ("RESTART_GATEWAY.extra", 1),
-        ("RERUN_JOB.target", None),
-        ("RERUN_JOB.target.must_exist_in", "kanban_task"),
-        ("RERUN_JOB.target.must_exist_in", "file"),
-        ("RERUN_JOB.target.pattern", "("),
-        ("RERUN_JOB.verify", "gateway_restarted"),
-        ("PAUSE_JOB.verify", "task_reclaimed"),
-        ("lower_case", {"auto": False}),
-        ("A B", {}),
-        ("NOT_A_TABLE", 3),
+        ("RESTART_GATEWAY.user", None, "RESTART_GATEWAY.user: missing"),
+        ("RESTART_GATEWAY.argv", None, "RESTART_GATEWAY.argv: missing"),
+        ("RESTART_CONTAINER.argv", ["hermes"], "unknown setting: RESTART_CONTAINER.argv"),
+        ("RESTART_CONTAINER.user", "hermes", "unknown setting: RESTART_CONTAINER.user"),
+        ("RESTART_CONTAINER.verify", "job_ran", "RESTART_CONTAINER.verify: a restart is"),
+        ("RESTART_GATEWAY.verify", "nothing", "RESTART_GATEWAY.verify: expected one of"),
+        ("RESTART_GATEWAY.type", "shell", "RESTART_GATEWAY.type: expected one of"),
+        ("RESTART_GATEWAY.label.en", None, "RESTART_GATEWAY.label.en: missing"),
+        ("RESTART_GATEWAY.label.de", "x", "unknown setting: RESTART_GATEWAY.label.de"),
+        ("RESTART_GATEWAY.timeout_seconds", 0, "RESTART_GATEWAY.timeout_seconds: expected"),
+        ("RESTART_GATEWAY.timeout_seconds", 3601, "RESTART_GATEWAY.timeout_seconds: expected"),
+        (
+            "RESTART_GATEWAY.verify_timeout_seconds",
+            None,
+            "RESTART_GATEWAY.verify_timeout_seconds: missing",
+        ),
+        (
+            "RESTART_GATEWAY.rate_limit",
+            {"auto_per_hour": 2},
+            "RESTART_GATEWAY.rate_limit.manual_per_hour: missing",
+        ),
+        (
+            "RESTART_GATEWAY.rate_limit",
+            {"auto_per_hour": -1, "manual_per_hour": 5},
+            "RESTART_GATEWAY.rate_limit.auto_per_hour: expected",
+        ),
+        ("RESTART_GATEWAY.extra", 1, "unknown setting: RESTART_GATEWAY.extra"),
+        ("RERUN_JOB.target", None, "RERUN_JOB.argv: {target} must appear once"),
+        ("RERUN_JOB.target.must_exist_in", "kanban_task", "RERUN_JOB.target: does not match"),
+        ("RERUN_JOB.target.must_exist_in", "file", "RERUN_JOB.target.must_exist_in: expected"),
+        ("RERUN_JOB.target.pattern", "(", "RERUN_JOB.target.pattern: invalid"),
+        ("RERUN_JOB.target.pattern", "(?a)(?u)x", "RERUN_JOB.target.pattern: invalid"),
+        ("RERUN_JOB.target.pattern", "(?u)(?a)x", "RERUN_JOB.target.pattern: invalid"),
+        ("RERUN_JOB.verify", "gateway_restarted", "RERUN_JOB.target: does not match"),
+        ("PAUSE_JOB.verify", "task_reclaimed", "PAUSE_JOB.target: does not match"),
+        ("NOT_A_TABLE", 3, "NOT_A_TABLE: expected a table"),
     ],
 )
-def test_incoherent_catalogue_stops_nurse(tmp_path: Path, path: str, value: object) -> None:
-    assert catalogue_error(tmp_path, path, value)
+def test_incoherent_catalogue_stops_nurse(
+    tmp_path: Path, path: str, value: object, reason: str
+) -> None:
+    assert catalogue_error(tmp_path, path, value).startswith(reason)
+
+
+@pytest.mark.parametrize("code", ["lower_case", "A B", "A\n", "_A", "A" * 65])
+def test_action_code_must_be_well_formed(tmp_path: Path, code: str) -> None:
+    document = tomllib.loads(CATALOGUE.read_text(encoding="utf-8"))
+    document[code] = document.pop("PAUSE_JOB")  # a valid entry: only its code is wrong
+
+    with pytest.raises(SettingsError, match="an action code must be"):
+        load_catalogue(write(tmp_path, document))
+
+
+@pytest.mark.parametrize("code", ["RERUN_JOB", "PAUSE_JOB"])
+def test_job_verification_needs_a_target(tmp_path: Path, code: str) -> None:
+    document = changed(CATALOGUE, f"{code}.target", None)
+    document[code]["argv"] = ["hermes", "cron", "list"]
+
+    with pytest.raises(SettingsError, match=f"{code}.target: does not match"):
+        load_catalogue(write(tmp_path, document))
 
 
 def test_limits_can_be_changed_and_french_label_left_out(tmp_path: Path) -> None:

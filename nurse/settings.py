@@ -101,9 +101,13 @@ class _Table:
         return value
 
     def folder(self, key: str) -> Path:
-        value = PurePosixPath(self.text(key))
-        if not value.is_absolute() or ".." in value.parts:
-            raise SettingsError(f"{self.path(key)}: expected an absolute path without '..'")
+        text = self.text(key)
+        value = PurePosixPath(text)
+        # Python keeps a leading "//" apart from "/", Linux does not: it would hide an overlap.
+        if text.startswith("//") or not value.is_absolute() or ".." in value.parts:
+            raise SettingsError(
+                f"{self.path(key)}: expected an absolute path without '..' or a leading '//'"
+            )
         return Path(value)
 
 
@@ -170,7 +174,7 @@ def _proxy_url(table: _Table) -> str:
         parts, port = urlsplit(""), None
     if (
         parts.scheme != "http"
-        or port is None
+        or not port
         or not _PROXY_HOST.fullmatch(parts.hostname or "")
         or value != f"http://{parts.hostname}:{port}"
     ):
@@ -186,7 +190,8 @@ def _check_separate(settings: Settings) -> None:
         for second in folders[index + 1 :]:
             if first.is_relative_to(second) or second.is_relative_to(first):
                 raise SettingsError("paths: the folders must be separate, none inside another")
-    if any(settings.actions_file.is_relative_to(folder) for folder in folders):
+    catalogue = settings.actions_file
+    if any(catalogue.is_relative_to(f) or f.is_relative_to(catalogue) for f in folders):
         raise SettingsError("paths.actions_file: must be outside the other folders")
 
 
@@ -256,7 +261,7 @@ def _target(table: _Table) -> Target | None:
     kind = section.choice("must_exist_in", ("cron_job", "kanban_task"))
     try:
         pattern = re.compile(section.text("pattern"))
-    except (re.error, RecursionError, OverflowError):
+    except (re.error, ValueError, RecursionError, OverflowError):
         raise SettingsError(f"{section.path('pattern')}: invalid expression") from None
     section.close()
     return Target(kind, pattern)
