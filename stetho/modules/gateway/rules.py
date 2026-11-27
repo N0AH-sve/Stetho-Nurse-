@@ -1,7 +1,7 @@
 """Applies the rules of `rules.yaml` to what the reader returned."""
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import MappingProxyType
@@ -17,6 +17,8 @@ _CONDITIONS = frozenset(
     {"state", "exit_reason", "desired_state", "written_by_command", "older_than", "no_date"}
 )
 _WITHOUT_STATE = ("missing", "missing_too_long", "unusable")
+# The advices that tell to start or to restart something.
+_STARTING_ADVICE = frozenset({"start_again", "fix_then_start", "check_container"})
 
 
 class RulesError(Exception):
@@ -28,6 +30,7 @@ class Verdict:
     status: Status
     summary: str  # key under gateway.summary
     actions: tuple[str, ...]
+    advice: str | None = field(default=None, compare=False)  # key under gateway.advice
 
 
 @dataclass(frozen=True)
@@ -72,7 +75,10 @@ def _verdict(entry: Mapping[object, object], where: str) -> Verdict:
         isinstance(code, str) and ACTION_CODE.fullmatch(code) for code in actions
     ):
         raise RulesError(f"{where}: invalid actions")
-    return Verdict(Status(status), summary, tuple(actions))
+    advice = entry.get("advice")
+    if advice is not None and (not isinstance(advice, str) or not advice):
+        raise RulesError(f"{where}: invalid advice")
+    return Verdict(Status(status), summary, tuple(actions), advice)
 
 
 def _conditions(when: object, thresholds: Mapping[str, int], where: str) -> Conditions:
@@ -109,7 +115,7 @@ def _rule(entry: object, thresholds: Mapping[str, int]) -> Rule:
     if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
         raise RulesError("a rule needs an id")
     name = entry["id"]
-    if entry.keys() - {"id", "when", "status", "summary", "actions"}:
+    if entry.keys() - {"id", "when", "status", "summary", "advice", "actions"}:
         raise RulesError(f"{name}: unknown key")
     return Rule(name, _conditions(entry.get("when"), thresholds, name), _verdict(entry, name))
 
@@ -190,9 +196,16 @@ def evaluate(
     # A repair must never work against the operator, nor rely on an intent STETHO cannot read.
     if state.desired_state == "stopped" or state.desired_state_unrecognised:
         verdict = replace(verdict, actions=())
+    if state.desired_state == "stopped" and verdict.advice is not None:
+        # Never advise to start again what the operator stopped.
+        verdict = replace(verdict, advice="deliberate_stop")
+    if state.desired_state_unrecognised and verdict.advice in _STARTING_ADVICE:
+        # The unknown value could mean a deliberate pause.
+        verdict = replace(verdict, advice="check_intent")
     # A value STETHO does not know is at least a warning.
     unexpected = any(item.code is AnomalyCode.UNEXPECTED_VALUE for item in reading.anomalies)
     if unexpected and verdict.status in (Status.OK, Status.UNKNOWN):
         summary = "online_unknown_value" if verdict.status is Status.OK else verdict.summary
-        verdict = replace(verdict, status=Status.WARN, summary=summary)
+        advice = "check_version" if verdict.status is Status.OK else verdict.advice
+        verdict = replace(verdict, status=Status.WARN, summary=summary, advice=advice)
     return verdict

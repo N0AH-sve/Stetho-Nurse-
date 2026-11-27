@@ -17,7 +17,7 @@ Status values:
 | Type information for PyYAML | `types-PyYAML`, development only | In place | PyYAML ships no types, which strict mode needs |
 | Tests | pytest, pytest-cov | In place | De facto standard, with coverage |
 | Pre-commit checks | pre-commit, gitleaks | In place | Secrets and errors are caught before a commit |
-| API response checks | `openapi-schema-validator`, development only, instead of `jsonschema` | Approved | It ships types, which strict mode needs |
+| API response checks | `openapi-schema-validator`, development only, instead of `jsonschema` | In place | It ships types, which strict mode needs |
 | API contract checks | `openapi-spec-validator`, development only | In place | Checks that the hand-written contract is valid OpenAPI 3.1 |
 | Dependency audit | pip-audit | In place | Reports known vulnerabilities |
 | Task runner | Make | In place | Already available, one entry point for all commands |
@@ -37,7 +37,7 @@ Status values:
 | NURSE action catalogue | TOML (`actions.toml`) | Approved | The specified YAML cannot be read without a dependency |
 | Docker access | Proxy filtering by method and path, such as `wollomatic/socket-proxy` | Required | NURSE never mounts the Docker socket |
 | STETHO web server | Starlette and Uvicorn | In place | Lightweight. FastAPI generates OpenAPI from code, while our contract is written first |
-| Page rendering | Server-side Jinja2 templates with a little plain JavaScript | Approved | No front-end build step |
+| Page rendering | Server-side Jinja2 templates with a little plain JavaScript | In place | No front-end build step |
 | STETHO YAML parser | PyYAML (safe loader only) | In place | Mature and widely used |
 | Incident state | A small JSON file, written atomically | Approved | The specification asks for a small file; no database needed |
 | Notification client | `urllib` from the standard library | Approved | One simple request does not justify a dependency |

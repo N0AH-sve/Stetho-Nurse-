@@ -188,6 +188,7 @@ class Probe:
             group=sensor.group,
             status=Status.UNKNOWN,
             summary=describe(anomaly, self._translator),
+            advice=self._translator.text(f"probe.advice.{anomaly.code}"),
             checked_at=now,
             details=details,
             anomalies=(anomaly.code,),

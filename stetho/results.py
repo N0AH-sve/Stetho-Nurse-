@@ -46,6 +46,11 @@ def _require_text(value: str, name: str) -> None:
         raise ValueError(f"{name} must not be empty")
 
 
+def _check_advice(advice: str | None) -> None:
+    if advice is not None:
+        _require_text(advice, "advice")
+
+
 def _check_actions(actions: tuple[str, ...]) -> None:
     if not all(ACTION_CODE.fullmatch(code) for code in actions):
         raise ValueError("invalid action code")
@@ -78,6 +83,7 @@ class Item:
     label: str
     status: Status
     summary: str
+    advice: str | None = None  # what to do, if there is something to do
     details: tuple[Detail, ...] = ()
     actions: tuple[str, ...] = ()
 
@@ -85,6 +91,7 @@ class Item:
         _require_text(self.id, "id")
         _require_text(self.label, "label")
         _require_text(self.summary, "summary")
+        _check_advice(self.advice)
         _check_actions(self.actions)
 
 
@@ -98,6 +105,7 @@ class SensorResult:
     status: Status
     summary: str
     checked_at: datetime
+    advice: str | None = None  # what to do, if there is something to do
     details: tuple[Detail, ...] = ()
     items: tuple[Item, ...] = ()
     actions: tuple[str, ...] = ()
@@ -111,6 +119,7 @@ class SensorResult:
         _require_text(self.summary, "summary")
         if self.checked_at.utcoffset() is None:
             raise ValueError("checked_at must have a time zone")
+        _check_advice(self.advice)
         _check_actions(self.actions)
         if len(set(self.anomalies)) != len(self.anomalies):
             raise ValueError("repeated anomaly code")

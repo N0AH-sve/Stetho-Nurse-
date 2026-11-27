@@ -7,7 +7,8 @@
 #   written_by_command    the date was written by a command: it is not a sign of life
 #   older_than            the date is older than the named threshold
 #   no_date: true         there is no usable date
-# `summary` names a text of the translation files, under gateway.summary.
+# `summary` and `advice` name texts of the translation files, under gateway.summary and
+# gateway.advice. A rule without `advice` has nothing to advise.
 # No repair is offered when the intent is `stopped` or unknown, whatever the rule says.
 
 thresholds:
@@ -21,63 +22,76 @@ rules:
     when: { state: [stopped], desired_state: stopped }
     status: critical
     summary: deliberate_stop
+    advice: deliberate_stop
   - id: stopped
     when: { state: [stopped] }
     status: critical
     summary: stopped
+    advice: start_again
     actions: [RESTART_GATEWAY]
   - id: startup_failed
     when: { state: [startup_failed] }
     status: critical
     summary: startup_failed
+    advice: fix_then_start
     actions: [RESTART_GATEWAY]
   - id: watchdog
     when: { state: [degraded], exit_reason: [loop_liveness_watchdog, shutdown_watchdog] }
     status: critical
     summary: watchdog
+    advice: fix_then_start
     actions: [RESTART_GATEWAY]
 
   - id: command_down
     when: { written_by_command: true, older_than: down_after_minutes }
     status: critical
     summary: command_down
+    advice: check_container
     actions: [RESTART_CONTAINER]
   - id: command_late
     when: { written_by_command: true, older_than: late_after_minutes }
     status: warn
     summary: command_waiting
+    advice: wait
   - id: command_recent
     when: { written_by_command: true }
     status: unknown
     summary: command_waiting
+    advice: wait
 
   - id: down
     when: { older_than: down_after_minutes }
     status: critical
     summary: down
+    advice: check_container
     actions: [RESTART_CONTAINER]
   - id: late
     when: { older_than: late_after_minutes }
     status: warn
     summary: late
+    advice: wait_and_check_load
   - id: no_date
     when: { no_date: true }
     status: unknown
     summary: no_date
+    advice: check_clock
 
   - id: degraded
     when: { state: [degraded] }
     status: warn
     summary: degraded
+    advice: check_platforms
     actions: [RESTART_GATEWAY]
   - id: starting
     when: { state: [starting] }
     status: warn
     summary: starting
+    advice: wait
   - id: draining
     when: { state: [draining] }
     status: warn
     summary: draining
+    advice: wait
   - id: running
     when: { state: [running] }
     status: ok
@@ -88,16 +102,20 @@ rules:
     when: {}
     status: warn
     summary: unknown_state
+    advice: check_version
 
 # When the state file cannot be used.
 without_state:
   missing:
     status: unknown
     summary: missing
+    advice: check_running_and_mount
   missing_too_long:
     status: critical
     summary: missing_too_long
+    advice: check_running_and_mount
     actions: [RESTART_CONTAINER]
   unusable:
     status: unknown
     summary: unusable
+    advice: check_version_and_access

@@ -6,6 +6,8 @@ status:
   info: "Information"
   unknown: "Unknown"
 banner:
+  problem: "{title}: {summary}"
+  stale: "The data is out of date"
   all_ok: "Everything is working"
   nothing_checked: "Nothing could be checked"
 anomaly:
@@ -64,6 +66,24 @@ gateway:
     profiles_unchecked: "Some profiles could not be checked"
     all_online: "All gateways are online ({count})"
     of_profile: "{name}: {summary}"
+  advice:
+    deliberate_stop: "If this stop is no longer wanted, start Hermes again."
+    start_again: "Read the Hermes logs, then start the Hermes gateway again."
+    fix_then_start: "Read the Hermes logs, fix the cause, then start the gateway again."
+    check_container: "Check that the Hermes container is running and read its logs. Restart it if needed."
+    wait: "Wait a few minutes. If nothing changes, read the Hermes logs."
+    wait_and_check_load: "Wait a few minutes. If it lasts, read the Hermes logs and check the load of the server."
+    check_clock: "Check the clock of the server and the version of Hermes."
+    check_platforms: "Check the connections of the platforms and read the Hermes logs."
+    check_version: "Check the version of Hermes: STETHO may need an update."
+    check_running_and_mount: "Check that Hermes is running and that its data folder is correctly mounted."
+    check_version_and_access: "Check the version of Hermes and that STETHO can read its data."
+    check_profile_list: "Check the list of profiles in the STETHO settings."
+    check_intent: "Check the version of Hermes and whether this stop was intended, then read the logs."
+    check_profile_names: "Check the names of the folders in the Hermes profiles folder: one cannot be a profile name."
+    restarts_all: "Restarting the container interrupts every gateway, including those that work."
+    of_profile: "Profile {name}: {advice}"
+    check_profiles_access: "Check that STETHO can read the profiles folder of Hermes."
   detail:
     last_sign_of_life: "Last sign of life"
     stop_reason: "Stop reason"
@@ -79,10 +99,18 @@ gateway:
     loop_liveness_watchdog: "Hermes was frozen"
     shutdown_watchdog: "Hermes was stuck while stopping"
 probe:
+  advice:
+    sensor_error: "Read the STETHO log, which gives the type and place of the error."
+    sensor_timeout: "If it lasts, check the size of the Hermes files and the sensor time limit."
   detail:
     error: "Internal error"
 api:
+  docs:
+    title: "STETHO API"
+    intro: "Made from the API contract. Descriptions are in English."
+    not_served: "Not served yet"
   error:
+    invalid_request: "The request is not valid."
     invalid_host: "The request used a host name that is not allowed."
     unauthorized: "A password is required."
     not_found: "Not found."

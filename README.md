@@ -5,8 +5,8 @@ whether it works, get an alert when it breaks, and repair it with predefined act
 itself is neither modified nor upgraded, and no LLM is involved.
 
 > **Status: early development.** STETHO starts, checks the `gateway` module periodically and
-> serves a protected server. Only `/health` is served so far: there is no status page yet, and
-> NURSE does not exist.
+> serves its state through a protected, read-only API. There is no status page yet, and NURSE
+> does not exist.
 
 ## How it works
 

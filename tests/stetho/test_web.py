@@ -17,7 +17,6 @@ import anyio
 import pytest
 import yaml
 from openapi_spec_validator import validate
-from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Message, Receive, Scope, Send
 
@@ -25,8 +24,9 @@ from stetho.__main__ import build_server, listening_socket
 from stetho.config import Config, Language, Secret, parse_config
 from stetho.i18n import load_translator
 from stetho.logs import setup_logging
-from stetho.web import app as web_app
+from stetho.web.app import _MAX_STOP_WAIT_SECONDS
 from stetho.web.guard import Guard
+from stetho.web.report import ReportStore
 
 ROOT = Path(__file__).parents[2]
 FIXTURES = ROOT / "tests" / "fixtures" / "hermes-0.21"
@@ -117,8 +117,8 @@ def basic(password: str = LONG_PHRASE, user: str = "anyone", scheme: str = "Basi
 
 
 @contextlib.contextmanager
-def running(settings_: Config, store: web_app.ReportStore | None = None) -> Iterator[Client]:
-    server = build_server(settings_, store or web_app.ReportStore())
+def running(settings_: Config, store: ReportStore | None = None) -> Iterator[Client]:
+    server = build_server(settings_, store or ReportStore())
     ready = threading.Event()
     startup = server.startup
 
@@ -435,13 +435,14 @@ def test_error_after_the_response_started_sends_nothing_more(
 def test_error_in_a_route_shows_nothing_anywhere(
     log: io.StringIO, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
 ) -> None:
-    async def failing(_request: Request) -> Response:
+    def failing(*_arguments: object, **_options: object) -> None:
         raise RuntimeError(MARKER)
 
-    monkeypatch.setattr(web_app, "_health", failing)
+    # Any route that fails: here, the one that builds the status.
+    monkeypatch.setattr("stetho.web.routes.status_json", failing)
 
     with running(config()) as client:
-        answer = client.request()
+        answer = client.request("/api/v1/status", authorization=(basic(),))
 
     assert (answer.status, answer.code) == (500, "internal_error")
     assert answer.headers["x-frame-options"] == "DENY"
@@ -477,14 +478,14 @@ def test_stuck_probe_does_not_hold_the_stop(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_stop_waits_at_most_five_seconds_for_the_probe() -> None:
-    assert web_app._MAX_STOP_WAIT_SECONDS == 5
+    assert _MAX_STOP_WAIT_SECONDS == 5
 
 
 @pytest.mark.usefixtures("log")
 def test_probe_runs_while_the_server_does() -> None:
     published = threading.Event()
 
-    class Watched(web_app.ReportStore):
+    class Watched(ReportStore):
         def publish(self, report: Any) -> None:
             super().publish(report)
             published.set()

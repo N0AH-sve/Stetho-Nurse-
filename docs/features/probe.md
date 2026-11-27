@@ -35,10 +35,11 @@ Defined in `stetho/results.py`.
 | `details` | List of label and value pairs; only the value may be empty |
 | `items` | Elements followed by the sensor, such as one per scheduled job |
 | `actions` | Action codes offered as buttons |
+| `advice` | What to do, or nothing; not empty when given |
 | `anomalies` | Codes of the current [anomalies](anomalies.md), without repeats |
 
-An **item** has an `id`, a `label`, a `status`, a `summary`, `details` and `actions`. It has no
-sub-items. Its `id` is not empty and is unique within its sensor.
+An **item** has an `id`, a `label`, a `status`, a `summary`, an optional `advice`, `details` and
+`actions`. It has no sub-items. Its `id` is not empty and is unique within its sensor.
 
 - **Texts** are already in the language of the installation.
 - **Actions.** A code uses up to 64 uppercase letters, digits and `_`, starting with a letter,
@@ -62,7 +63,8 @@ logged and does not end the monitoring.
 - Sensors run at the same time, each in its own thread. They are waited for up to
   `probe.sensor_timeout_seconds`, in total and not one after the other.
 - **Crash.** The sensor is `unknown`, with a `sensor_error` anomaly. Its card shows the
-  [error type and place](anomalies.md#internal-errors), never the message.
+  [error type and place](anomalies.md#internal-errors), never the message. A crash or a timeout
+  also gives an advice: read the log, or check the size of the files and the time limit.
 - **Too slow.** The sensor is `unknown`, with a `sensor_timeout` anomaly. Python cannot stop a
   thread: the reading is left to finish and its result is ignored. The sensor is not started
   again until then. The threads do not keep STETHO from stopping.

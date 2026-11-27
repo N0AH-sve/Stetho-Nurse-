@@ -6,6 +6,8 @@ status:
   info: "Información"
   unknown: "Desconocido"
 banner:
+  problem: "{title}: {summary}"
+  stale: "Los datos están desactualizados"
   all_ok: "Todo funciona"
   nothing_checked: "No se ha podido comprobar nada"
 anomaly:
@@ -64,6 +66,24 @@ gateway:
     profiles_unchecked: "No se han podido comprobar algunos perfiles"
     all_online: "Todos los gateways están en línea ({count})"
     of_profile: "{name}: {summary}"
+  advice:
+    deliberate_stop: "Si esta parada ya no se desea, vuelve a arrancar Hermes."
+    start_again: "Lee los registros de Hermes y vuelve a arrancar su gateway."
+    fix_then_start: "Lee los registros de Hermes, corrige la causa y vuelve a arrancar el gateway."
+    check_container: "Comprueba que el contenedor de Hermes está en marcha y lee sus registros. Reinícialo si hace falta."
+    wait: "Espera unos minutos. Si nada cambia, lee los registros de Hermes."
+    wait_and_check_load: "Espera unos minutos. Si continúa, lee los registros de Hermes y comprueba la carga del servidor."
+    check_clock: "Comprueba el reloj del servidor y la versión de Hermes."
+    check_platforms: "Comprueba las conexiones de las plataformas y lee los registros de Hermes."
+    check_version: "Comprueba la versión de Hermes: puede que STETHO necesite una actualización."
+    check_running_and_mount: "Comprueba que Hermes está en marcha y que su carpeta de datos está bien montada."
+    check_version_and_access: "Comprueba la versión de Hermes y que STETHO puede leer sus datos."
+    check_profile_list: "Revisa la lista de perfiles en los ajustes de STETHO."
+    check_intent: "Comprueba la versión de Hermes y si esta parada era intencionada, y lee los registros."
+    check_profile_names: "Revisa los nombres de las carpetas en la carpeta de perfiles de Hermes: uno no puede ser un nombre de perfil."
+    restarts_all: "Reiniciar el contenedor interrumpe todos los gateways, incluidos los que funcionan."
+    of_profile: "Perfil {name}: {advice}"
+    check_profiles_access: "Comprueba que STETHO puede leer la carpeta de perfiles de Hermes."
   detail:
     last_sign_of_life: "Última señal de vida"
     stop_reason: "Motivo de la parada"
@@ -79,10 +99,18 @@ gateway:
     loop_liveness_watchdog: "Hermes estaba bloqueado"
     shutdown_watchdog: "Hermes se quedó bloqueado al detenerse"
 probe:
+  advice:
+    sensor_error: "Lee el registro de STETHO, que indica el tipo y el lugar del error."
+    sensor_timeout: "Si continúa, comprueba el tamaño de los archivos de Hermes y el plazo de los sensores."
   detail:
     error: "Error interno"
 api:
+  docs:
+    title: "API de STETHO"
+    intro: "Página creada a partir del contrato de la API. Las descripciones están en inglés."
+    not_served: "Todavía no disponible"
   error:
+    invalid_request: "La petición no es válida."
     invalid_host: "La petición usa un nombre de host no permitido."
     unauthorized: "Se necesita una contraseña."
     not_found: "No encontrado."

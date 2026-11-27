@@ -86,7 +86,8 @@ that messages do not repeat the content of the file.
 The user-facing texts are in `stetho/translations/`: `en.yaml`, `fr.yaml` and `es.yaml`. They
 ship with the code; an installation only chooses the language. `stetho/i18n.py` loads them.
 For now they hold the names of the statuses, two banner texts (healthy, and nothing checked), the
-[anomaly sentences](anomalies.md#texts), durations and the texts of the `gateway` module.
+[anomaly sentences](anomalies.md#texts), durations, the texts of the `gateway` module with its
+advice, and those of the API.
 
 - **Keys.** Texts can be grouped. A text is asked for by its dotted key, such as
   `banner.all_ok`. Each part of a key uses letters, digits and `_`, and does not start with a

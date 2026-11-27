@@ -19,7 +19,8 @@ from stetho.i18n import TranslationError, load_translator
 from stetho.logs import install_error_hooks, setup_logging
 from stetho.modules.gateway.rules import RulesError
 from stetho.probe import Probe, build_sensors
-from stetho.web.app import ReportStore, create_app
+from stetho.web.app import create_app
+from stetho.web.report import ReportStore
 
 _LOG = logging.getLogger("stetho")
 _CANNOT_START = 2

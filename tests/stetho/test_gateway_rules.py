@@ -277,6 +277,98 @@ def test_every_summary_of_the_rules_has_a_text(language: Language) -> None:
         assert translator.text(f"gateway.exit_reason.{reason}")
 
 
+# The advice of each case: none only when everything is fine.
+@pytest.mark.parametrize(
+    ("changes", "advice"),
+    [
+        ({}, None),
+        ({"state": "stopped"}, "start_again"),
+        ({"state": "stopped", "desired_state": "stopped"}, "deliberate_stop"),
+        ({"state": "startup_failed"}, "fix_then_start"),
+        ({"state": "degraded", "exit_reason": "shutdown_watchdog"}, "fix_then_start"),
+        ({"command": True, "age": 5}, "wait"),
+        ({"command": True, "age": 150}, "wait"),
+        ({"command": True, "age": 3600}, "check_container"),
+        ({"age": 3600}, "check_container"),
+        ({"age": 150}, "wait_and_check_load"),
+        ({"age": None}, "check_clock"),
+        ({"state": "degraded"}, "check_platforms"),
+        ({"state": "starting"}, "wait"),
+        ({"state": "draining"}, "wait"),
+        ({"state": None}, "check_version"),
+    ],
+)
+def test_advice_of_each_case(changes: dict[str, Any], advice: str | None) -> None:
+    assert judge(reading(**changes)).advice == advice
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [{"state": "startup_failed"}, {"state": "degraded"}, {"age": 3600}, {"age": 150}],
+)
+def test_no_advice_to_start_what_was_stopped_on_purpose(changes: dict[str, Any]) -> None:
+    assert judge(reading(desired_state="stopped", **changes)).advice == "deliberate_stop"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"state": "stopped"},
+        {"state": "startup_failed"},
+        {"state": "degraded", "exit_reason": "shutdown_watchdog"},
+        {"age": 3600},
+        {"age": 3600, "command": True},
+    ],
+)
+def test_no_advice_to_start_when_the_intent_cannot_be_read(changes: dict[str, Any]) -> None:
+    assert judge(reading(desired_state_unrecognised=True, **changes)).advice == "check_intent"
+
+
+@pytest.mark.parametrize(
+    ("changes", "advice"),
+    [({}, None), ({"state": "degraded"}, "check_platforms"), ({"age": 150}, "wait_and_check_load")],
+)
+def test_other_advice_stays_when_the_intent_cannot_be_read(
+    changes: dict[str, Any], advice: str | None
+) -> None:
+    assert judge(reading(desired_state_unrecognised=True, **changes)).advice == advice
+
+
+def test_healthy_gateway_stopped_on_purpose_has_no_advice() -> None:
+    assert judge(reading(desired_state="stopped")).advice is None
+
+
+@pytest.mark.parametrize(
+    ("changes", "advice"),
+    [({}, "check_version"), ({"age": None}, "check_clock"), ({"age": 3600}, "check_container")],
+)
+def test_advice_with_an_unknown_value(changes: dict[str, Any], advice: str) -> None:
+    assert judge(reading(anomalies=unexpected(), **changes)).advice == advice
+
+
+@pytest.mark.parametrize(
+    ("code", "advice"),
+    [
+        (AnomalyCode.SOURCE_MISSING, "check_running_and_mount"),
+        (AnomalyCode.PARSE_ERROR, "check_version_and_access"),
+    ],
+)
+def test_advice_without_a_usable_state(code: AnomalyCode, advice: str) -> None:
+    assert judge(without_state(code)).advice == advice
+
+
+@pytest.mark.parametrize("language", list(Language))
+def test_every_advice_has_a_text(language: Language) -> None:
+    translator = load_translator(language)
+    verdicts = [rule.verdict for rule in RULES.rules] + list(RULES.without_state.values())
+    keys = {v.advice for v in verdicts if v.advice}
+
+    others = {"check_intent", "check_profile_list", "check_profiles_access"}
+    for key in keys | others | {"check_profile_names", "restarts_all"}:
+        assert translator.text(f"gateway.advice.{key}")
+    assert translator.placeholders("gateway.advice.of_profile") == {"name", "advice"}
+
+
 def break_rules(document: dict[str, Any], path: str, value: object) -> None:
     *parents, key = path.split(".")
     target: Any = document
@@ -301,6 +393,8 @@ def break_rules(document: dict[str, Any], path: str, value: object) -> None:
         ("rules.0.when", {"no_date": False}, "no_date can only be true"),
         ("rules.0.status", "info", "invalid status"),
         ("rules.0.summary", "", "invalid summary"),
+        ("rules.0.advice", "", "invalid advice"),
+        ("rules.0.advice", 3, "invalid advice"),
         ("rules.0.actions", ["restart"], "invalid actions"),
         ("rules.14.when", {"state": ["running"]}, "last rule must have no condition"),
         ("without_state", {}, "without_state needs"),
