@@ -11,7 +11,7 @@ from types import FrameType
 
 from nurse.hermes import HermesReader
 from nurse.reception import Reception
-from nurse.records import lock_instance, remove_temporary_files
+from nurse.records import StateError, lock_instance, remove_temporary_files
 from nurse.settings import SettingsError, load_catalogue, load_settings
 
 _LOG = logging.getLogger("nurse")
@@ -69,6 +69,9 @@ def main(arguments: Sequence[str] | None = None, stop: threading.Event | None = 
         reception = Reception(settings, actions, check_hermes=reader)
         try:
             reception.recover()
+        except StateError:
+            _LOG.error("NURSE cannot start: its state cannot be read")
+            return _CANNOT_START
         except OSError:
             _LOG.error("NURSE cannot start: an interrupted action cannot be answered")
             return _CANNOT_START

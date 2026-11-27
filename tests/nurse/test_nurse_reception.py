@@ -736,6 +736,7 @@ def test_largest_state_can_be_loaded_again(tmp_path: Path) -> None:
         {longest: {"prescription": prescription, "started_at": STARTED}},
     )
     records.save_state(tmp_path, state)
+    (tmp_path / "started.json").write_text("{}")
 
     assert load_state(tmp_path) == state
 
@@ -874,13 +875,77 @@ def test_a_pending_action_gets_no_other_answer(tmp_path: Path) -> None:
     assert not (tmp_path / "results" / "rx-1.json").exists()
 
 
-def test_recovery_with_an_unusable_state_changes_nothing(tmp_path: Path) -> None:
-    service = reception(tmp_path)
-    (tmp_path / "log" / "state.json").write_bytes(b"{")
+@pytest.mark.parametrize("name", ["state.json", "started.json"])
+@pytest.mark.parametrize("content", [b"{", b"null", b"[]", b'{"../x": 1}', b'{"a": "x"}'])
+def test_program_does_not_start_with_an_unusable_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    name: str,
+    content: bytes,
+) -> None:
+    configured = settings(tmp_path)
+    (configured.log_dir / name).write_bytes(content)
+    monkeypatch.setattr(program, "load_settings", lambda _: configured)
+    monkeypatch.setattr(program, "load_catalogue", lambda _: ACTIONS)
+    monkeypatch.setattr("signal.signal", lambda *_: None)
 
-    service.recover()
+    assert program.main(["--config", "unused"]) == 2
 
-    assert list((tmp_path / "results").iterdir()) == []
+    assert "its state cannot be read" in caplog.text
+    assert (configured.log_dir / name).read_bytes() == content
+    assert list(configured.results_dir.iterdir()) == []
+
+
+def test_losing_the_identifiers_of_known_actions_is_not_a_first_start(tmp_path: Path) -> None:
+    interrupted(tmp_path)
+    (tmp_path / "log" / "started.json").unlink()
+
+    with pytest.raises(StateError):
+        load_state(tmp_path / "log")
+
+
+def started_and_done(tmp_path: Path, state: State, rx_id: str, at: int) -> None:
+    launch = Launch(at, "RERUN_JOB", "manual", False)
+    records.start_action(tmp_path / "log", state, request(rx_id), launch, STARTED)
+    done = answer("done", rx_id=rx_id)
+    records.finish_action(tmp_path / "log", tmp_path / "results", state, done)
+
+
+def test_action_older_than_the_last_80_is_still_known(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(records, "MAX_RESULTS", 0)
+    monkeypatch.setattr(records, "LOG_ACTIONS", 2)
+    service = reception(tmp_path, allow)
+    state = State()
+    for number in range(5):
+        started_and_done(tmp_path, state, f"a{number}", EPOCH - 7200)
+    first = result(tmp_path, "a0")
+    drop(tmp_path, request("a0"), "a0.json")
+
+    service.run_once()
+
+    assert result(tmp_path, "a0") == first  # neither replaced nor removed
+    assert log(tmp_path)[0]["result"]["refusal_reason"] == "duplicate"
+
+
+def test_identifiers_of_actions_are_forgotten_after_8_days(tmp_path: Path) -> None:
+    reception(tmp_path)
+    state = State()
+    started_and_done(tmp_path, state, "old", EPOCH - 8 * 86400)
+    started_and_done(tmp_path, state, "kept", EPOCH - 8 * 86400 + 1)
+
+    started_and_done(tmp_path, state, "new", EPOCH)
+
+    assert sorted(load_state(tmp_path / "log").started) == ["kept", "new"]
+
+
+def test_most_actions_that_8_days_can_hold_can_be_loaded_again(tmp_path: Path) -> None:
+    started = {f"{number:064}": EPOCH for number in range(100 * 24 * 8)}
+    (tmp_path / "started.json").write_text(json.dumps(started))
+
+    assert len(load_state(tmp_path).started) == 19200
 
 
 def test_program_does_not_start_when_recovery_cannot_be_written(

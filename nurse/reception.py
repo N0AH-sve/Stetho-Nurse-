@@ -165,10 +165,11 @@ class Reception:
         self._state_failed = False  # said once, not every second
 
     def recover(self) -> None:
-        """To call before the first request: answers what an interruption left unanswered."""
-        state = self._load()
-        if state is None:
-            return
+        """To call before the first request: answers what an interruption left unanswered.
+
+        Raises `StateError` for an unusable state: what was interrupted is then unknown.
+        """
+        state = load_state(self._settings.log_dir)
         directories = self._settings.log_dir, self._settings.results_dir
         for rx_id in recover_actions(*directories, state, _timestamp(self._clock())):
             _LOG.warning("action %s was interrupted: its effect is not verified", rx_id)
@@ -210,7 +211,7 @@ class Reception:
         now = self._clock()
         if handled or self._pruned_at is None or abs(now - self._pruned_at) >= _PRUNE_EVERY:
             state = self._load()
-            started = None if state is None else _started(state)
+            started = None if state is None else state.known_actions()
             prune_results(self._settings.results_dir, now.timestamp(), started)
             self._pruned_at = now
 
@@ -262,7 +263,7 @@ class Reception:
     ) -> None:
         seconds = int(now.timestamp())
         answered = result_path(self._settings.results_dir, rx_id).exists()
-        if state is not None and rx_id in _started(state):
+        if state is not None and rx_id in state.known_actions():
             answered = True  # its only answer is the one of the action
         if state is not None:
             state.forget(seconds)
@@ -316,11 +317,6 @@ class Reception:
             maximum = self._settings.max_actions_per_hour
             reason = limit_reached(state, action, request.origin, maximum, int(now.timestamp()))
         return reason or "execution_disabled"
-
-
-def _started(state: State) -> frozenset[str]:
-    """The identifiers of the actions that NURSE still knows it started."""
-    return frozenset({*state.pending, *(entry["result"]["rx_id"] for entry in state.actions)})
 
 
 def _timestamp(moment: datetime) -> str:

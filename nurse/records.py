@@ -20,6 +20,8 @@ from typing import Any
 HANDLED_SECONDS = int(timedelta(minutes=10).total_seconds())
 LAUNCH_SECONDS = int(timedelta(hours=1).total_seconds())
 RESULT_SECONDS = int(timedelta(days=7).total_seconds())
+# A day more than a result: it is written when its action ends, and goes 7 days later.
+STARTED_SECONDS = RESULT_SECONDS + int(timedelta(days=1).total_seconds())
 MAX_RESULTS = 1000  # a flood of requests must not fill the disk
 # Above what the accepted rate can reach in 10 minutes. It keeps the state loadable.
 MAX_HANDLED = 20_000
@@ -32,6 +34,8 @@ JOURNAL_FILES = 5
 _MAX_STATE_BYTES = 4 * 1024 * 1024
 _MAX_RESULT_BYTES = 64 * 1024
 STATE_NAME = "state.json"
+# Apart from the state, whose size is limited: 8 days of actions would not fit with the rest.
+STARTED_NAME = "started.json"
 JOURNAL_NAME = "journal.jsonl"  # the refused requests
 ACTIONS_NAME = "actions.jsonl"  # the started actions: refusals never reach this journal
 # A request identifier cannot start with "_": no result can take this name.
@@ -82,11 +86,18 @@ class State:
     recent: list[Entry] = field(default_factory=list)  # refusals, the most recent first
     actions: list[Entry] = field(default_factory=list)  # ended actions, the most recent first
     pending: dict[str, Entry] = field(default_factory=dict)  # started and not yet answered
+    started: dict[str, int] = field(default_factory=dict)  # rx_id of every started action
 
     def forget(self, now: int) -> None:
         self.handled = {k: at for k, at in self.handled.items() if now - at < HANDLED_SECONDS}
         # A launch dated in the future, after a change of the clock, is kept and counted.
         self.launches = [item for item in self.launches if now - item.at < LAUNCH_SECONDS]
+        self.started = {k: at for k, at in self.started.items() if now - at < STARTED_SECONDS}
+
+    def known_actions(self) -> frozenset[str]:
+        """The identifiers that belong to an action: none may be answered or used again."""
+        ended = (entry["result"]["rx_id"] for entry in self.actions)
+        return frozenset({*self.started, *self.pending, *ended})
 
     def remember(self, entry: Entry) -> None:
         """Keeps a refused request."""
@@ -104,6 +115,7 @@ class State:
             list(self.recent),
             list(self.actions),
             dict(self.pending),
+            dict(self.started),
         )
 
 
@@ -181,24 +193,41 @@ def _parse_state(document: object) -> State:
     return State(dict(handled), parsed, list(recent), list(actions), dict(pending))
 
 
-def load_state(log_dir: Path) -> State:
-    """A missing state is a first start. Any other doubt raises `StateError`."""
+def _read_json(log_dir: Path, name: str) -> object:
+    """`None` when the file does not exist yet. Any other doubt raises `StateError`."""
     try:
-        with (log_dir / STATE_NAME).open("rb") as stream:
+        with (log_dir / name).open("rb") as stream:
             content = stream.read(_MAX_STATE_BYTES + 1)
     except FileNotFoundError:
         if log_dir.is_dir():
-            return State()
+            return None
         raise StateError from None
     except OSError:
         raise StateError from None
-    if len(content) > _MAX_STATE_BYTES:
+    if len(content) > _MAX_STATE_BYTES or content.strip() == b"null":
         raise StateError
     try:
-        document = json.loads(content, parse_constant=_no_constant, parse_float=_finite)
+        return json.loads(content, parse_constant=_no_constant, parse_float=_finite)
     except (ValueError, RecursionError):
         raise StateError from None
-    return _parse_state(document)
+
+
+def load_state(log_dir: Path) -> State:
+    """Missing files are a first start. Any other doubt raises `StateError`."""
+    document = _read_json(log_dir, STATE_NAME)
+    state = State() if document is None else _parse_state(document)
+    started = _read_json(log_dir, STARTED_NAME)
+    if started is None:
+        # Losing the identifiers of actions that the state still knows is not a first start.
+        if state.pending or state.actions:
+            raise StateError
+    elif not isinstance(started, dict) or not all(
+        _is_identifier(rx_id) and _is_time(at) for rx_id, at in started.items()
+    ):
+        raise StateError
+    else:
+        state.started = dict(started)
+    return state
 
 
 def _sync_folder(folder: Path) -> None:
@@ -375,8 +404,13 @@ def start_action(
     saved.handled[rx_id] = launch.at
     saved.launches.append(launch)
     saved.pending[rx_id] = {"prescription": prescription, "started_at": started_at}
+    saved.started[rx_id] = launch.at
+    saved.forget(launch.at)
+    # First: if the state then fails, the identifier is lost for good, and nothing was run.
+    _write_atomically(log_dir / STARTED_NAME, saved.started, 0o600)
     save_state(log_dir, saved)
-    state.handled, state.launches, state.pending = saved.handled, saved.launches, saved.pending
+    state.handled, state.launches = saved.handled, saved.launches
+    state.pending, state.started = saved.pending, saved.started
 
 
 def finish_action(log_dir: Path, results_dir: Path, state: State, result: Entry) -> None:
